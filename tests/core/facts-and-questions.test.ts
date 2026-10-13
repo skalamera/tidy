@@ -20,6 +20,22 @@ describe('deriveFacts', () => {
     expect(f.w2s[0].box6MedicareWithheld).toBe(123_250);
   });
 
+  it('keeps only the digits of SSNs the 2024 return prints with dashes or spaces, so the forms can hold them', () => {
+    const s = stateWith({
+      documents: [
+        doc('py', [
+          priorYear({
+            taxpayer: { firstName: 'Alex', lastName: 'Rivera', ssn: '400-00-0001' },
+            spouse: { firstName: 'Sam', lastName: 'Rivera', ssn: '400 00 0002' },
+          }),
+        ]),
+      ],
+    });
+    const f = deriveFacts(s);
+    expect(f.taxpayer.ssn).toBe('400000001');
+    expect(f.spouse?.ssn).toBe('400000002');
+  });
+
   it('skips superseded (corrected) documents', () => {
     const s = stateWith({ documents: [doc('old', [w2Extraction()], { supersededBy: 'new' }), doc('new', [w2Extraction()])] });
     expect(deriveFacts(s).w2s.map((w) => w.id)).toEqual(['w2-new-0']);

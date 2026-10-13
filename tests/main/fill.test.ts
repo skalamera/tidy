@@ -7,7 +7,7 @@ import { FEDERAL_MAPS } from '../../src/main/pdf/maps/federal2025';
 import { federalValues, fillPdf, fitRows, formAmount, namesOnReturn } from '../../src/main/pdf/fill';
 import { buildPackage, filingSteps } from '../../src/main/pdf/package';
 import { S1, S2 } from '../fixtures/facts';
-import { doc, stateWith, w2Extraction } from '../fixtures/state';
+import { doc, priorYear, stateWith, w2Extraction } from '../fixtures/state';
 
 const read = (rel: string) => readFile(path.join(process.cwd(), 'resources', rel));
 
@@ -80,6 +80,16 @@ describe('buildPackage', () => {
     const pdf = await PDFDocument.load(await buildPackage(state, read));
     expect(pdf.getPageCount()).toBe(1 + 2); // cover + Form 1040 (2 pages)
     expect(pdf.getTitle()).toBe('2025 Tax Return');
+  });
+
+  it('builds the package when the 2024 return printed SSNs with dashes', async () => {
+    const dashed = priorYear({
+      taxpayer: { firstName: 'Alex', lastName: 'Rivera', ssn: '400-00-0001' },
+      spouse: { firstName: 'Sam', lastName: 'Rivera', ssn: '400-00-0002' },
+    });
+    const state = stateWith({ documents: [doc('py', [dashed]), doc('d1', [w2Extraction()])] });
+    const pdf = await PDFDocument.load(await buildPackage(state, read));
+    expect(pdf.getPageCount()).toBeGreaterThan(1);
   });
 
   it('tells the user exactly where to mail and how to pay', () => {

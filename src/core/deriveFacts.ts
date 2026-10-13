@@ -3,6 +3,7 @@ import type { DocumentRecord, AppState } from '../shared/state';
 import type { Evidence, Owner, StateCode, TaxFacts } from '../shared/facts';
 import { MD_LOCAL_2025, type MdCounty } from '../engine/params/md2025';
 import { amountCents } from './amount';
+import { ssnDigits } from '../shared/answers';
 import { applyOverrides } from './overrides';
 import { RULES } from './questionRules';
 
@@ -89,14 +90,21 @@ export function deriveFacts(state: AppState): TaxFacts {
   const prior = latestPriorYear(state);
   if (prior) {
     f.filingStatus = prior.filingStatus;
+    // Returns print SSNs as 123-45-6789; the forms' SSN boxes take the 9 digits. A masked or partial SSN becomes ''
+    // here, and the identity question rules (same ssnDigits test) ask for it instead.
     f.taxpayer = {
       firstName: prior.taxpayer.firstName,
       lastName: prior.taxpayer.lastName,
-      ssn: prior.taxpayer.ssn ?? '',
+      ssn: ssnDigits(prior.taxpayer.ssn ?? '') ?? '',
       dateOfBirth: null,
     };
     f.spouse = prior.spouse
-      ? { firstName: prior.spouse.firstName, lastName: prior.spouse.lastName, ssn: prior.spouse.ssn ?? '', dateOfBirth: null }
+      ? {
+          firstName: prior.spouse.firstName,
+          lastName: prior.spouse.lastName,
+          ssn: ssnDigits(prior.spouse.ssn ?? '') ?? '',
+          dateOfBirth: null,
+        }
       : null;
     f.address = { ...prior.address };
     f.residency = { ...f.residency, state: asState(prior.residentState), mdCounty: asMdCounty(prior.mdCounty) };
