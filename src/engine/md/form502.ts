@@ -38,7 +38,7 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   const l = new Ledger();
   const fl = fed.ledger;
   const status = f.filingStatus;
-  const county = (f.residency.mdCounty ?? 'Montgomery') as MdCounty;
+  const county: MdCounty = f.residency.mdCounty ?? 'Montgomery';
 
   // Income
   const L1 = l.set('md502.1', fl.get('f1040.11a'), 'Federal adjusted gross income');

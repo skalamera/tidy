@@ -1,6 +1,7 @@
 import type { AmountT, PriorYearExtractionT } from '../shared/schemas/extraction';
 import type { DocumentRecord, AppState } from '../shared/state';
 import type { Evidence, Owner, StateCode, TaxFacts } from '../shared/facts';
+import { MD_LOCAL_2025, type MdCounty } from '../engine/params/md2025';
 import { amountCents } from './amount';
 import { applyOverrides } from './overrides';
 import { RULES } from './questionRules';
@@ -36,6 +37,24 @@ export function emptyFacts(): TaxFacts {
 }
 
 const asState = (s: string | null): StateCode | null => (s === 'MD' ? s : null);
+
+const MD_COUNTIES = Object.keys(MD_LOCAL_2025) as MdCounty[];
+/** Lowercase, no apostrophes or periods, "Saint" as "st", single spaces. */
+const countyKey = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[’'.]/g, '')
+    .replace(/\bsaint\b/g, 'st')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** A county as last year's return printed it ("MONTGOMERY", "Prince George’s County"), or null when it isn't one of
+ *  Maryland's. A bare "Baltimore" is null too, because it could be the city or the county. */
+const asMdCounty = (raw: string | null): MdCounty | null => {
+  if (raw === null) return null;
+  const k = countyKey(raw).replace(/ co$/, ' county');
+  return MD_COUNTIES.find((c) => [k, k.replace(/ county$/, '')].includes(countyKey(c))) ?? null;
+};
 
 export function latestPriorYear(state: AppState): PriorYearExtractionT | null {
   for (const d of [...state.documents].reverse()) {
@@ -77,7 +96,7 @@ export function deriveFacts(state: AppState): TaxFacts {
       ? { firstName: prior.spouse.firstName, lastName: prior.spouse.lastName, ssn: prior.spouse.ssn ?? '', dateOfBirth: null }
       : null;
     f.address = { ...prior.address };
-    f.residency = { ...f.residency, state: asState(prior.residentState), mdCounty: prior.mdCounty };
+    f.residency = { ...f.residency, state: asState(prior.residentState), mdCounty: asMdCounty(prior.mdCounty) };
     f.payments.federalPriorYearApplied = amountCents(prior.appliedToNextYear);
     f.stateReturn.priorYearApplied = amountCents(prior.stateAppliedToNextYear);
     if (f.stateReturn.priorYearApplied > 0) {

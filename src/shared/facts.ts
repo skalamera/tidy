@@ -1,4 +1,5 @@
 import type { Cents } from '../engine/money';
+import type { MdCounty } from '../engine/params/md2025';
 
 export type FilingStatus = 'single' | 'mfj' | 'mfs' | 'hoh' | 'qss';
 export type Owner = 'taxpayer' | 'spouse';
@@ -122,7 +123,7 @@ export interface TaxFacts {
   residency: {
     state: StateCode | null;
     fullYear: boolean | null;
-    mdCounty: string | null;
+    mdCounty: MdCounty | null;
     /** MD: 4-digit political subdivision (Form 502 page 1). */
     mdSubdivision: { code: string; name: string } | null;
   };

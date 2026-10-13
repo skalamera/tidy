@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { computeFederal } from '../../src/engine/federal/form1040';
+import { MD_LOCAL_2025 } from '../../src/engine/params/md2025';
 import { deriveFacts } from '../../src/core/deriveFacts';
 import { deriveFlags } from '../../src/core/flags';
 import { reconcileQuestions } from '../../src/core/reconcile';
+import { buildView } from '../../src/core/view';
+import MD_SUBDIVISIONS from '../../src/shared/data/md-subdivisions-2025.json';
 import type { AppState } from '../../src/shared/state';
 import { usd } from '../../src/engine/money';
 import { div1099 } from '../fixtures/facts';
@@ -71,6 +74,30 @@ describe('Maryland questions', () => {
       'part-year',
     );
     expect(blockers(answer(base(), { 'filing-status-same': 'yes', 'resident-state': 'other' }))).toContain('state-other');
+  });
+
+  const withPriorCounty = (mdCounty: string) => stateWith({ documents: [doc('py', [priorYear({ mdCounty })])] });
+
+  it('reads last year’s county however the return prints it', () => {
+    const county = (raw: string) => deriveFacts(withPriorCounty(raw)).residency.mdCounty;
+    expect(county('MONTGOMERY')).toBe('Montgomery');
+    expect(county('Montgomery County')).toBe('Montgomery');
+    expect(county('Anne Arundel Co.')).toBe('Anne Arundel');
+    expect(county('Prince George’s County')).toBe("Prince George's");
+    expect(county('Saint Mary’s')).toBe("St. Mary's");
+    expect(county('BALTIMORE CITY')).toBe('Baltimore City');
+    expect(county('Baltimore County')).toBe('Baltimore County');
+    expect(county('Baltimore')).toBeNull(); // the city or the county: ask rather than guess
+  });
+
+  it('still builds the return when last year’s county is not one it knows', () => {
+    const s = withPriorCounty('Rockville');
+    expect(deriveFacts(s).residency.mdCounty).toBeNull();
+    expect(() => buildView(s, { aiProvider: 'anthropic' })).not.toThrow();
+  });
+
+  it('only offers subdivisions in counties with a local tax rate', () => {
+    for (const d of MD_SUBDIVISIONS) expect(Object.keys(MD_LOCAL_2025)).toContain(d.county);
   });
 });
 

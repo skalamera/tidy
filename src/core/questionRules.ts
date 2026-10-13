@@ -1,4 +1,5 @@
 import { formatUsd, sumCents } from '../engine/money';
+import type { MdCounty } from '../engine/params/md2025';
 import type { PriorYearExtractionT } from '../shared/schemas/extraction';
 import type { FilingStatus, TaxFacts } from '../shared/facts';
 import type { AppState, Question, SectionId } from '../shared/state';
@@ -223,7 +224,7 @@ export const RULES: Rule[] = [
       const d = MD_SUBDIVISIONS.find((x) => x.code === a);
       if (!d) return;
       f.residency.mdSubdivision = { code: d.code, name: d.code.endsWith('00') ? d.county : d.name };
-      f.residency.mdCounty = d.county;
+      f.residency.mdCounty = d.county as MdCounty; // every county in the file has a local tax rate (tested)
     },
   },
   {
