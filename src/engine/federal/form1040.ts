@@ -1,0 +1,136 @@
+import { sumCents, type Cents } from '../money';
+import { Ledger } from '../ledger';
+import { FED_2025, type FedParams } from '../params/fed2025';
+import type { TaxFacts } from '../../shared/facts';
+import { scheduleA } from './scheduleA';
+import { scheduleB } from './scheduleB';
+import { qdcgWorksheet } from './qdcg';
+import { taxOnOrdinaryIncome } from './taxComputation';
+import { form8959 } from './form8959';
+import { form8960 } from './form8960';
+import { schedule3 } from './schedule3';
+import { amtScreen } from './amtScreen';
+
+export type FederalFormId = 'f1040' | 'schA' | 'schB' | 'sch2' | 'sch3' | 'f8959' | 'f8960';
+
+export interface FederalResult {
+  ledger: Ledger;
+  agi: Cents;
+  taxableIncome: Cents;
+  totalTax: Cents;
+  totalPayments: Cents;
+  refund: Cents;
+  amountOwed: Cents;
+  itemizing: boolean;
+  /** Forms that must be printed/filed, in IRS attachment order. */
+  forms: FederalFormId[];
+  /** True when the AMT screen can't rule out alternative minimum tax (Form 6251 isn't supported yet). */
+  mayOweAmt: boolean;
+  /** Schedule B Parts I and II rows. */
+  payers: { interest: { name: string; amount: Cents }[]; dividends: { name: string; amount: Cents }[] };
+}
+
+/** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
+export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalResult {
+  const l = new Ledger();
+
+  // Income (page 1)
+  const L1a = l.set('f1040.1a', sumCents(f.w2s.map((w) => w.box1Wages)), 'Wages from W-2s (box 1)');
+  const L1z = l.set('f1040.1z', L1a, 'Total wages', 'Lines 1a through 1h');
+  const b = scheduleB(f, l);
+  l.set(
+    'f1040.2a',
+    sumCents([...f.f1099Int.map((x) => x.box8TaxExemptInterest), ...f.f1099Div.map((x) => x.box12ExemptInterestDividends)]),
+    'Tax-exempt interest',
+  );
+  const L2b = l.set('f1040.2b', b.taxableInterest, 'Taxable interest');
+  const L3a = l.set('f1040.3a', sumCents(f.f1099Div.map((x) => x.box1bQualifiedDividends)), 'Qualified dividends');
+  const L3b = l.set('f1040.3b', b.ordinaryDividends, 'Ordinary dividends');
+  const L7a = l.set('f1040.7a', sumCents(f.f1099Div.map((x) => x.box2aCapitalGainDistributions)), 'Capital gain distributions');
+  const L8 = l.set('f1040.8', 0, 'Additional income (Schedule 1)');
+  const L9 = l.set('f1040.9', L1z + L2b + L3b + L7a + L8, 'Total income', 'Lines 1z + 2b + 3b + 4b + 5b + 6b + 7a + 8');
+  const L10 = l.set('f1040.10', 0, 'Adjustments to income (Schedule 1)');
+  const L11a = l.set('f1040.11a', L9 - L10, 'Adjusted gross income', 'Line 9 − line 10');
+
+  // Deductions (page 2)
+  const L11b = l.set('f1040.11b', L11a, 'Adjusted gross income');
+  const standard = p.standardDeduction[f.filingStatus];
+  const itemized = scheduleA(f, L11b, p, l);
+  const itemizing = f.forceItemize || itemized > standard;
+  const L12e = l.set('f1040.12e', itemizing ? itemized : standard, itemizing ? 'Itemized deductions (Schedule A)' : 'Standard deduction');
+  const L13a = l.set('f1040.13a', 0, 'Qualified business income deduction');
+  const L13b = l.set('f1040.13b', 0, 'Additional deductions (Schedule 1-A)');
+  const L14 = l.set('f1040.14', L12e + L13a + L13b, 'Total deductions', 'Lines 12e + 13a + 13b');
+  const L15 = l.set('f1040.15', Math.max(0, L11b - L14), 'Taxable income', 'Line 11b − line 14');
+
+  // Tax
+  const usesQdcg = L3a > 0 || L7a > 0;
+  const tax = usesQdcg
+    ? qdcgWorksheet({ taxableIncome: L15, qualifiedDividends: L3a, netCapitalGainForWorksheet: L7a }, f.filingStatus, p, l)
+    : taxOnOrdinaryIncome(L15, f.filingStatus, p);
+  const L16 = l.set('f1040.16', tax, 'Income tax');
+
+  const { mayOweAmt } = amtScreen(f, itemizing, p, l);
+  const medicare = form8959(f, p, l);
+  const niit = form8960({ taxableInterest: L2b, ordinaryDividends: L3b, netGain: L7a, magi: L11b }, f.filingStatus, p, l);
+  const S2_2 = l.set('sch2.2', 0, 'Alternative minimum tax (Form 6251)');
+  const S2_3 = l.set('sch2.3', S2_2, 'Total additions to tax', 'Lines 1z + 2');
+  const S2_11 = l.set('sch2.11', medicare.tax, 'Additional Medicare Tax (Form 8959)');
+  const S2_12 = l.set('sch2.12', niit, 'Net investment income tax (Form 8960)');
+  const S2_21 = l.set('sch2.21', S2_11 + S2_12, 'Total other taxes');
+  const s3 = schedule3(f, p, l);
+
+  const L17 = l.set('f1040.17', S2_3, 'Additional tax (Schedule 2, line 3)');
+  const L18 = l.set('f1040.18', L16 + L17, 'Tax before credits', 'Lines 16 + 17');
+  const L19 = l.set('f1040.19', 0, 'Child tax credit / credit for other dependents');
+  const L20 = l.set('f1040.20', s3.nonrefundableCredits, 'Other credits (Schedule 3, line 8)');
+  const L21 = l.set('f1040.21', L19 + L20, 'Total credits', 'Lines 19 + 20');
+  const L22 = l.set('f1040.22', Math.max(0, L18 - L21), 'Tax after credits', 'Line 18 − line 21');
+  const L23 = l.set('f1040.23', S2_21, 'Other taxes (Schedule 2, line 21)');
+  const L24 = l.set('f1040.24', L22 + L23, 'Total tax', 'Lines 22 + 23');
+
+  // Payments
+  const L25a = l.set('f1040.25a', sumCents(f.w2s.map((w) => w.box2FedWithheld)), 'Federal tax withheld (W-2s)');
+  const L25b = l.set(
+    'f1040.25b',
+    sumCents([...f.f1099Int.map((x) => x.box4FedWithheld), ...f.f1099Div.map((x) => x.box4FedWithheld)]),
+    'Federal tax withheld (1099s)',
+  );
+  const L25c = l.set('f1040.25c', medicare.withholding, 'Additional Medicare Tax withheld (Form 8959)');
+  const L25d = l.set('f1040.25d', L25a + L25b + L25c, 'Total federal tax withheld');
+  const L26 = l.set(
+    'f1040.26',
+    sumCents(f.payments.federalEstimated) + f.payments.federalPriorYearApplied,
+    'Estimated payments and last year’s refund applied',
+  );
+  const L31 = l.set('f1040.31', s3.otherPayments, 'Other payments (Schedule 3, line 15)');
+  const L32 = l.set('f1040.32', L31, 'Other payments and refundable credits');
+  const L33 = l.set('f1040.33', L25d + L26 + L32, 'Total payments', 'Lines 25d + 26 + 32');
+  const L34 = l.set('f1040.34', Math.max(0, L33 - L24), 'Overpaid', 'Line 33 − line 24');
+  l.set('f1040.35a', L34, 'Refund');
+  const L37 = l.set('f1040.37', Math.max(0, L24 - L33), 'Amount you owe', 'Line 24 − line 33');
+
+  const foreign = f.foreignAccounts.hasForeignAccount === true || f.foreignAccounts.foreignTrust === true;
+  // Attachment Sequence No. order: 1040, Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), 8959 (71), 8960 (72).
+  const forms: FederalFormId[] = ['f1040'];
+  if (S2_3 > 0 || S2_21 > 0) forms.push('sch2');
+  if (s3.nonrefundableCredits > 0 || s3.otherPayments > 0) forms.push('sch3');
+  if (itemizing) forms.push('schA');
+  if (L2b > p.scheduleBThreshold || L3b > p.scheduleBThreshold || foreign) forms.push('schB');
+  if (medicare.tax > 0 || medicare.withholding > 0) forms.push('f8959');
+  if (niit > 0) forms.push('f8960');
+
+  return {
+    ledger: l,
+    agi: L11a,
+    taxableIncome: L15,
+    totalTax: L24,
+    totalPayments: L33,
+    refund: L34,
+    amountOwed: L37,
+    itemizing,
+    forms,
+    mayOweAmt,
+    payers: { interest: b.interestPayers, dividends: b.dividendPayers },
+  };
+}
