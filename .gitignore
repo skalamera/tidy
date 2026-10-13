@@ -4,3 +4,5 @@ out
 .DS_Store
 .eslintcache
 *.log*
+# Downloaded by `npm run law:index`; only chunks.json is committed.
+resources/law/2025/sources/

@@ -1,9 +1,9 @@
-import { defineConfig } from 'eslint/config'
-import tseslint from '@electron-toolkit/eslint-config-ts'
-import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
-import eslintPluginReact from 'eslint-plugin-react'
-import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
-import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
+import { defineConfig } from 'eslint/config';
+import tseslint from '@electron-toolkit/eslint-config-ts';
+import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier';
+import eslintPluginReact from 'eslint-plugin-react';
+import eslintPluginReactHooks from 'eslint-plugin-react-hooks';
+import eslintPluginReactRefresh from 'eslint-plugin-react-refresh';
 
 export default defineConfig(
   { ignores: ['**/node_modules', '**/dist', '**/out'] },
@@ -13,20 +13,29 @@ export default defineConfig(
   {
     settings: {
       react: {
-        version: 'detect'
-      }
-    }
+        version: 'detect',
+      },
+    },
   },
   {
     files: ['**/*.{ts,tsx}'],
     plugins: {
       'react-hooks': eslintPluginReactHooks,
-      'react-refresh': eslintPluginReactRefresh
+      'react-refresh': eslintPluginReactRefresh,
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
-    }
+      ...eslintPluginReactRefresh.configs.vite.rules,
+    },
   },
-  eslintConfigPrettier
-)
+  {
+    files: ['**/*.{ts,tsx}'],
+    rules: {
+      // Types are inferred and checked by `tsc --strict`; annotating every arrow function adds noise.
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
+    },
+  },
+  { ignores: ['resources/**', 'src/shared/data/**'] },
+  eslintConfigPrettier,
+);

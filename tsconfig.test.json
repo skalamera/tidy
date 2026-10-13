@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.node.json",
+  "include": ["src/main/**/*", "src/preload/**/*", "src/engine/**/*", "src/core/**/*", "src/shared/**/*", "tests/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"],
+  "exclude": ["tests/renderer/**"],
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  }
+}
