@@ -24,6 +24,9 @@ mac:
     - target: dmg
       arch: [arm64]
   notarize: false
+  # Personal build: sign ad hoc so electron-builder never uses (or prompts for) a signing identity in the login keychain.
+  identity: '-'
+  hardenedRuntime: false
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}
 npmRebuild: false
