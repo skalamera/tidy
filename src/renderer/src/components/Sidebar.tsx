@@ -1,5 +1,6 @@
 import { Check, Lock } from 'lucide-react';
 import type { AppView } from '../../../core/view';
+import { AI_NAMES } from '../../../shared/ai';
 import type { SectionId } from '../../../shared/state';
 import { usd } from '../format';
 import { STATUS_LABEL } from '../labels';
@@ -14,7 +15,17 @@ function Result({ label, refund, owed }: { label: string; refund: number; owed: 
   );
 }
 
-export function Sidebar({ view, current, onOpen }: { view: AppView; current: SectionId; onOpen: (id: SectionId) => void }) {
+export function Sidebar({
+  view,
+  current,
+  onOpen,
+  onChangeAi,
+}: {
+  view: AppView;
+  current: SectionId;
+  onOpen: (id: SectionId) => void;
+  onChangeAi: () => void;
+}) {
   const { approved, total } = view.progress;
   return (
     <nav className="sidebar" aria-label="Steps">
@@ -69,6 +80,16 @@ export function Sidebar({ view, current, onOpen }: { view: AppView; current: Sec
         <Result label="Federal" refund={view.summary.refund} owed={view.summary.owed} />
         {view.summary.state && <Result label="Maryland" refund={view.summary.state.refund} owed={view.summary.state.owed} />}
       </div>
+      {view.aiProvider && (
+        <div className="ai-line">
+          <span>
+            AI: <strong>{AI_NAMES[view.aiProvider].ai}</strong>
+          </span>
+          <button onClick={onChangeAi} aria-label="Change AI">
+            Change
+          </button>
+        </div>
+      )}
     </nav>
   );
 }

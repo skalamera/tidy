@@ -1,4 +1,3 @@
-import type Anthropic from '@anthropic-ai/sdk';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { computeFederal } from '../engine/federal/form1040';
@@ -8,27 +7,30 @@ import { deriveFacts } from '../core/deriveFacts';
 import { applyOverrides } from '../core/overrides';
 import { reconcileQuestions } from '../core/reconcile';
 import { buildView, type AppView } from '../core/view';
+import { AI_NAMES, type AiProvider } from '../shared/ai';
 import { IPC, type ExportResult, type Result, type ScreenContext } from '../shared/ipc';
 import type { AppState, SectionId } from '../shared/state';
 import type { LlmClient } from './ai/llm';
 import { runChatTurn, type ChatModel, type ToolHandlers } from './ai/chat';
-import { looksLikeApiKey } from './apiKey';
+import { keyProblem } from './apiKey';
 import type { LawSearch } from './law/search';
 import { addFile, processDocument, type PdfTools } from './pipeline/ingest';
 import type { ReturnStore } from './store';
 
 export interface Connection {
+  provider: AiProvider;
   llm: LlmClient;
   chat: ChatModel;
 }
 
 export interface ServiceDeps {
   store: ReturnStore;
-  apiKeys: { load(): Promise<string | null>; save(key: string): Promise<void> };
+  /** The saved API key and which AI it is for, encrypted on disk. */
+  aiKeys: { load(): Promise<{ provider: AiProvider; key: string } | null>; save(provider: AiProvider, key: string): Promise<void> };
   pdf: PdfTools;
   law: LawSearch;
-  /** Build Claude clients for a key. With verify = true it makes one cheap API call and throws if the key is rejected. */
-  connect: (apiKey: string, verify: boolean) => Promise<Connection>;
+  /** Build clients for an AI and key. With verify = true it makes one cheap API call and throws if the key is rejected. */
+  connect: (provider: AiProvider, apiKey: string, verify: boolean) => Promise<Connection>;
   now: () => string;
   newId: () => string;
   emit: (channel: string, payload: unknown) => void;
@@ -56,8 +58,8 @@ export class TidyService {
   }
 
   async init(): Promise<void> {
-    const key = await this.deps.apiKeys.load();
-    if (key) this.conn = await this.deps.connect(key, false);
+    const saved = await this.deps.aiKeys.load();
+    if (saved) this.conn = await this.deps.connect(saved.provider, saved.key, false);
     await this.deps.store.update((d) => {
       for (const doc of d.documents) if (doc.status === 'reading') doc.status = 'queued'; // the app quit mid-read
       d.questions = reconcileQuestions(d);
@@ -66,7 +68,7 @@ export class TidyService {
   }
 
   view(): AppView {
-    return buildView(this.deps.store.get(), { hasApiKey: this.conn !== null });
+    return buildView(this.deps.store.get(), { aiProvider: this.conn?.provider ?? null });
   }
 
   /** Resolves when no document is being read. For tests and orderly shutdown. */
@@ -94,15 +96,18 @@ export class TidyService {
       d.onboarding.priorYearSkipped = true;
     });
 
-  async setApiKey(raw: string): Promise<Result> {
+  async setApiKey(provider: AiProvider, raw: string): Promise<Result> {
     const key = raw.trim();
-    if (!looksLikeApiKey(key)) return { ok: false, error: 'That doesn’t look like an Anthropic key. It starts with “sk-ant-”.' };
+    const problem = keyProblem(provider, key);
+    if (problem) return { ok: false, error: problem };
+    let conn: Connection;
     try {
-      this.conn = await this.deps.connect(key, true);
+      conn = await this.deps.connect(provider, key, true);
     } catch {
-      return { ok: false, error: 'Anthropic didn’t accept that key. Check it and try again.' };
+      return { ok: false, error: `${AI_NAMES[provider].company} didn’t accept that key. Check it and try again.` };
     }
-    await this.deps.apiKeys.save(key);
+    await this.deps.aiKeys.save(provider, key);
+    this.conn = conn;
     this.publish();
     this.pump();
     return { ok: true };
@@ -214,7 +219,7 @@ export class TidyService {
 
   // ---------- chat ----------
 
-  /** What the user sees right now, in words, for Claude. Rebuilt on every message. */
+  /** What the user sees right now, in words, for the AI. Rebuilt on every message. */
   chatContext(v: AppView): string {
     const s = this.screen.sectionId ? v.sections.find((x) => x.id === this.screen.sectionId) : null;
     const doc = this.screen.documentId ? v.documents.find((x) => x.id === this.screen.documentId) : null;
@@ -274,7 +279,8 @@ export class TidyService {
   }
 
   async sendChat(text: string): Promise<void> {
-    if (this.chatBusy || !this.conn || text.trim() === '') return;
+    const conn = this.conn;
+    if (this.chatBusy || !conn || text.trim() === '') return;
     this.chatBusy = true;
     const before = new Set(this.deps.store.get().proposals.map((p) => p.id));
     const say = (role: 'user' | 'assistant', t: string, proposalIds: string[] = []) =>
@@ -283,9 +289,11 @@ export class TidyService {
       });
     try {
       await say('user', text);
+      const chat = this.deps.store.get().chat;
       const out = await runChatTurn({
-        model: this.conn.chat,
-        transcript: this.deps.store.get().chat.transcript as Anthropic.MessageParam[],
+        model: conn.chat,
+        // A transcript only ever goes back to the AI that wrote it. Before Gemini support, that was always Claude.
+        transcript: (chat.transcriptBy ?? 'anthropic') === conn.provider ? chat.transcript : [],
         userText: text,
         context: this.chatContext(this.view()),
         handlers: this.chatHandlers(),
@@ -293,6 +301,7 @@ export class TidyService {
       });
       await this.deps.store.update((d) => {
         d.chat.transcript = out.transcript;
+        d.chat.transcriptBy = conn.provider;
       });
       const created = this.deps.store
         .get()
@@ -300,7 +309,7 @@ export class TidyService {
         .map((p) => p.id);
       await say('assistant', out.text, created);
     } catch {
-      await say('assistant', 'I couldn’t reach Claude just now. Check your internet connection and try again.');
+      await say('assistant', `I couldn’t reach ${AI_NAMES[conn.provider].ai} just now. Check your internet connection and try again.`);
     } finally {
       this.chatBusy = false;
     }

@@ -1,6 +1,7 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../shared/ipc';
+import { AI_PROVIDERS } from '../shared/ai';
 import { SECTION_IDS } from '../shared/state';
 import type { TidyService } from './service';
 
@@ -27,7 +28,7 @@ export function registerIpc(service: TidyService, isTrusted: (frameUrl: string |
   handle(IPC.getView, z.tuple([]), () => service.view());
   handle(IPC.completeWelcome, z.tuple([]), () => service.completeWelcome());
   handle(IPC.skipPriorYear, z.tuple([]), () => service.skipPriorYear());
-  handle(IPC.setApiKey, z.tuple([z.string().max(500)]), ([key]) => service.setApiKey(key));
+  handle(IPC.setApiKey, z.tuple([z.enum(AI_PROVIDERS), z.string().max(500)]), ([provider, key]) => service.setApiKey(provider, key));
   handle(IPC.pickFiles, z.tuple([]), () => service.pickFiles());
   handle(IPC.addPaths, z.tuple([z.array(z.string().max(4096)).max(200)]), ([paths]) => service.addPaths(paths));
   handle(IPC.retryDocument, z.tuple([Id]), ([id]) => service.retryDocument(id));

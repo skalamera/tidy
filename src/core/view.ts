@@ -2,6 +2,7 @@ import { formatUsd, type Cents } from '../engine/money';
 import { computeFederal, type FederalResult } from '../engine/federal/form1040';
 import type { Ledger } from '../engine/ledger';
 import { computeStateReturn, stateTotals, type StateResult } from '../engine/state';
+import type { AiProvider } from '../shared/ai';
 import type { Evidence, TaxFacts } from '../shared/facts';
 import type { AppState, ChatMessage, DocumentRecord, Flag, Proposal, Question, SectionId } from '../shared/state';
 import { deriveFacts, latestPriorYear } from './deriveFacts';
@@ -59,7 +60,8 @@ export interface AppView {
   };
   proposals: Proposal[];
   chat: ChatMessage[];
-  hasApiKey: boolean;
+  /** The AI that reads documents and answers chat; null until the user connects one. */
+  aiProvider: AiProvider | null;
   canExport: boolean;
 }
 
@@ -367,7 +369,7 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
 }
 
 export interface ViewContext {
-  hasApiKey: boolean;
+  aiProvider: AiProvider | null;
 }
 
 /** Everything the renderer draws, computed in main from the stored state. Pure. */
@@ -380,7 +382,7 @@ export function buildView(state: AppState, ctx: ViewContext): AppView {
   const busyDocs = state.documents.filter((d) => d.status === 'queued' || d.status === 'reading').length;
   const now = nextAction({
     welcomed: state.onboarding.welcomed,
-    hasApiKey: ctx.hasApiKey,
+    hasApiKey: ctx.aiProvider !== null,
     hasPriorYear: latestPriorYear(state) !== null,
     priorYearSkipped: state.onboarding.priorYearSkipped,
     busyDocs,
@@ -423,7 +425,7 @@ export function buildView(state: AppState, ctx: ViewContext): AppView {
     },
     proposals: state.proposals.filter((p) => p.status === 'pending'),
     chat: state.chat.messages,
-    hasApiKey: ctx.hasApiKey,
+    aiProvider: ctx.aiProvider,
     canExport: sections.every((s) => s.id === 'file' || s.status === 'approved') && !flags.some((x) => x.severity === 'blocker'),
   };
 }

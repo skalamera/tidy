@@ -177,7 +177,7 @@ a {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   padding: 56px 16px 20px;
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -315,6 +315,36 @@ a {
 }
 .result .good {
   color: var(--good);
+}
+.ai-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: -6px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ai-line button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ai-line button:hover {
+  text-decoration: underline;
+}
+.ai-line button:focus-visible {
+  outline: 3px solid var(--sun);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.ai-line strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 /* Main column */
@@ -967,4 +997,52 @@ a {
   display: flex;
   gap: 10px;
   width: min(520px, 90vw);
+}
+.providers {
+  display: grid;
+  grid-template-columns: repeat(2, 200px);
+  gap: 12px;
+}
+.provider {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 16px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.provider:hover {
+  border-color: #cfcdc4;
+}
+.provider.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.provider:has(input:focus-visible) {
+  outline: 3px solid var(--sun);
+  outline-offset: 2px;
+}
+.provider input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.provider strong {
+  font-size: 18px;
+}
+.provider span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.provider-note {
+  max-width: 520px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--sun-soft);
+  font-size: 14px;
 }

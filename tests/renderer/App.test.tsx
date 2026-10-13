@@ -31,27 +31,52 @@ function workingView(): AppView {
   const s = stateWith({ documents: [doc('py', [priorYear()]), doc('d1', [w2Extraction()])] });
   s.onboarding.welcomed = true;
   s.questions = reconcileQuestions(s);
-  return buildView(s, { hasApiKey: true });
+  return buildView(s, { aiProvider: 'anthropic' });
+}
+
+function keyScreenView(): AppView {
+  const s = emptyState(NOW);
+  s.onboarding.welcomed = true;
+  return buildView(s, { aiProvider: null });
 }
 
 afterEach(cleanup);
 
 describe('App', () => {
   it('starts with the welcome screen', async () => {
-    const spies = install(buildView(emptyState(NOW), { hasApiKey: false }));
+    const spies = install(buildView(emptyState(NOW), { aiProvider: null }));
     render(<App />);
     await userEvent.click(await screen.findByRole('button', { name: /Let’s start/ }));
     expect(spies.completeWelcome).toHaveBeenCalled();
   });
 
   it('asks for a Claude key and shows why a key was refused', async () => {
-    const s = emptyState(NOW);
-    s.onboarding.welcomed = true;
-    install(buildView(s, { hasApiKey: false }), { setApiKey: async () => ({ ok: false, error: 'Anthropic didn’t accept that key.' }) });
+    install(keyScreenView(), { setApiKey: async () => ({ ok: false, error: 'Anthropic didn’t accept that key.' }) });
     render(<App />);
     await userEvent.type(await screen.findByLabelText('Anthropic API key'), 'sk-ant-nope');
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
     expect((await screen.findByRole('alert')).textContent).toBe('Anthropic didn’t accept that key.');
+  });
+
+  it('lets the user pick Gemini, warns about the free tier, and sends the key with that choice', async () => {
+    const setApiKey = vi.fn(async () => ({ ok: true as const }));
+    install(keyScreenView(), { setApiKey });
+    render(<App />);
+    await userEvent.click(await screen.findByRole('radio', { name: /Gemini/ }));
+    expect(screen.getByText(/free tier/).textContent).toContain('billing');
+    await userEvent.type(screen.getByLabelText('Gemini API key'), 'AIza-test-key');
+    await userEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(setApiKey).toHaveBeenCalledWith('gemini', 'AIza-test-key');
+  });
+
+  it('can switch AI later, or go back without changing anything', async () => {
+    install(workingView());
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Change AI' }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Connect Tidy to an AI' })).toBeTruthy();
+    expect((screen.getByRole('radio', { name: /Claude/ }) as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: /Keep using Claude/ }));
+    expect(await screen.findByRole('button', { name: 'Change AI' })).toBeTruthy();
   });
 
   it('names the next step and its button opens that step', async () => {

@@ -1,4 +1,5 @@
 import type { AppView } from '../core/view';
+import type { AiProvider } from './ai';
 import type { SectionId } from './state';
 
 /** What the user is looking at. Sent to main on every navigation so the chat can say "this". */
@@ -20,7 +21,7 @@ export interface TidyApi {
   onNavigate(cb: (sectionId: SectionId) => void): () => void;
   completeWelcome(): Promise<void>;
   skipPriorYear(): Promise<void>;
-  setApiKey(key: string): Promise<Result>;
+  setApiKey(provider: AiProvider, key: string): Promise<Result>;
   pickFiles(): Promise<void>;
   addPaths(paths: string[]): Promise<{ added: number; duplicates: number; rejected: string[] }>;
   /** Drag-and-drop helper: absolute path of a dropped File (Electron webUtils). */

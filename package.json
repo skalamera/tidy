@@ -53,6 +53,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "@cantoo/pdf-lib": "^2.11.1",
+    "@google/genai": "^2.29.1",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^0.577.0",
     "minisearch": "^7.2.0",
@@ -64,7 +65,9 @@
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "fsevents@2.3.3": true,
-    "electron-winstaller": false
+    "electron-winstaller": false,
+    "protobufjs": false,
+    "@google/genai": false
   },
   "productName": "Tidy"
 }

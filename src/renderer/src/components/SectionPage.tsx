@@ -75,7 +75,7 @@ export function SectionPage({ view, sectionId, onOpenDoc, onApproved, onExport, 
         )}
 
         {sectionId === 'documents' && (
-          <Documents docs={view.documents} hasApiKey={view.hasApiKey} onOpen={(id) => onOpenDoc(id, 1)} onToast={onToast} />
+          <Documents docs={view.documents} hasApiKey={view.aiProvider !== null} onOpen={(id) => onOpenDoc(id, 1)} onToast={onToast} />
         )}
 
         <div className="cards">

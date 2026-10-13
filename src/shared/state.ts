@@ -1,4 +1,5 @@
 import type { Cents } from '../engine/money';
+import type { AiProvider } from './ai';
 import type {
   ClassificationT,
   DocType,
@@ -135,8 +136,9 @@ export interface AppState {
   /** Payers we expect this year (from last year's return); `dismissed` = "I won't get this one". */
   expected: { key: string; name: string; form: string; dismissed: boolean }[];
   proposals: Proposal[];
-  /** `messages` is what the UI shows; `transcript` is the raw, append-only API conversation. */
-  chat: { messages: ChatMessage[]; transcript: unknown[] };
+  /** `messages` is what the UI shows; `transcript` is the raw API conversation in the format of the AI that wrote it
+   *  (`transcriptBy`; missing in returns started before Gemini support, when it was always Claude). */
+  chat: { messages: ChatMessage[]; transcript: unknown[]; transcriptBy?: AiProvider };
 }
 
 export function emptyState(nowIso: string): AppState {

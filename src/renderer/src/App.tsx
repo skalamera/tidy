@@ -20,6 +20,7 @@ export default function App() {
   const [doc, setDoc] = useState<{ id: string; page: number } | null>(null);
   const [chatOpen, setChatOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [changingAi, setChangingAi] = useState(false);
 
   const openSection = useCallback((id: SectionId) => {
     setSectionId(id);
@@ -36,7 +37,7 @@ export default function App() {
     ? null
     : view.now.cta?.intent.type === 'welcome'
       ? 'welcome'
-      : !view.hasApiKey
+      : !view.aiProvider || changingAi
         ? 'api_key'
         : 'section';
   useEffect(() => {
@@ -51,7 +52,7 @@ export default function App() {
 
   if (!view) return <div className="loading" aria-busy="true" />;
   if (screen === 'welcome') return <Welcome onStart={() => void tidy().completeWelcome()} />;
-  if (screen === 'api_key') return <ApiKeyScreen />;
+  if (screen === 'api_key') return <ApiKeyScreen current={view.aiProvider} onClose={() => setChangingAi(false)} />;
 
   const exportReturn = async () => {
     const r = await tidy().exportPackage();
@@ -90,7 +91,7 @@ export default function App() {
   return (
     <div className={`app${chatOpen ? ' with-chat' : ''}`}>
       <div className="titlebar" />
-      <Sidebar view={view} current={sectionId} onOpen={openSection} />
+      <Sidebar view={view} current={sectionId} onOpen={openSection} onChangeAi={() => setChangingAi(true)} />
       <main className="main">
         <NowBar now={view.now} onIntent={run} />
         <SectionPage

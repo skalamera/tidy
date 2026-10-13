@@ -71,7 +71,7 @@ export function Documents({
                 {d.superseded
                   ? 'Replaced by a corrected form'
                   : d.status === 'queued' && !hasApiKey
-                    ? 'Waiting for your Claude key'
+                    ? 'Waiting for your API key'
                     : STATUS[d.status]}
               </span>
               {d.error && <span className="doc-error">{d.error}</span>}

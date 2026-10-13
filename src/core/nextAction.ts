@@ -39,8 +39,8 @@ export function nextAction(i: NextActionInput): NextAction {
   }
   if (!i.hasApiKey) {
     return {
-      title: 'Connect Tidy to Claude',
-      detail: 'Paste your Anthropic API key once. It stays in your Mac’s Keychain.',
+      title: 'Connect Tidy to an AI',
+      detail: 'Pick Claude or Gemini and paste its API key once. It stays in your Mac’s Keychain.',
       cta: { label: 'Add key', intent: { type: 'open_settings' } },
       tone: 'go',
     };

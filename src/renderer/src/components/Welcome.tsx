@@ -27,7 +27,9 @@ export function Welcome({ onStart }: { onStart: () => void }) {
       <button className="btn primary big" onClick={onStart}>
         Let’s start <ArrowRight size={18} aria-hidden />
       </button>
-      <p className="fine">Your documents stay on this Mac, encrypted. They are sent to Claude by Anthropic only to be read.</p>
+      <p className="fine">
+        Your documents stay on this Mac, encrypted. Tidy sends them only to the AI you pick, Claude or Gemini, to be read.
+      </p>
     </main>
   );
 }

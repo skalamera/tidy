@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { connect } from './ai/connect';
-import { ApiKeyStore } from './apiKey';
+import { AiKeyStore } from './apiKey';
 import { registerIpc } from './ipc';
 import { LawSearch } from './law/search';
 import { buildPackage } from './pdf/package';
@@ -13,7 +13,12 @@ import { ReturnStore } from './store';
 import { loadOrCreateDataKey } from './vault';
 
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
-const EXTERNAL_OK = ['https://console.anthropic.com/', 'https://www.irs.gov/', 'https://www.marylandcomptroller.gov/'];
+const EXTERNAL_OK = [
+  'https://console.anthropic.com/',
+  'https://aistudio.google.com/',
+  'https://www.irs.gov/',
+  'https://www.marylandcomptroller.gov/',
+];
 
 /** Files shipped in resources/ (forms, law index) live next to the app when packaged. */
 export const resourcePath = (rel: string) =>
@@ -66,7 +71,7 @@ app.whenReady().then(async () => {
     store,
     law,
     pdf: pdfTools,
-    apiKeys: new ApiKeyStore(path.join(userData, 'anthropic-key.bin'), safeStorage),
+    aiKeys: new AiKeyStore(userData, safeStorage),
     connect,
     now: () => new Date().toISOString(),
     newId: () => randomUUID(),

@@ -40,7 +40,7 @@ function ProposalCard({ p, onToast }: { p: Proposal; onToast: (t: string) => voi
   );
 }
 
-/** "Ask Tidy": Claude with the current screen and the whole return as context. It can suggest changes, never make them. */
+/** "Ask Tidy": the AI, with the current screen and the whole return as context. It can suggest changes, never make them. */
 export function ChatPanel({
   view,
   sectionId,
