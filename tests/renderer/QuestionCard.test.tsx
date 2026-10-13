@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QuestionCard } from '../../src/renderer/src/components/QuestionCard';
+import { answerText } from '../../src/renderer/src/labels';
 import type { Question } from '../../src/shared/state';
 
 const question = (p: Partial<Question>): Question => ({
@@ -71,5 +72,55 @@ describe('QuestionCard', () => {
     await userEvent.type(input, '86000');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onAnswer).toHaveBeenCalledWith('8600000');
+  });
+
+  it('takes a name in two boxes and sends both', async () => {
+    const onAnswer = vi.fn(async () => {});
+    render(<QuestionCard question={question({ kind: 'name', prompt: 'What’s your name?' })} onAnswer={onAnswer} />);
+    await userEvent.type(screen.getByLabelText('First name'), ' Pat ');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('alert').textContent).toBe('Enter a first and a last name.');
+    await userEvent.type(screen.getByLabelText('Last name'), 'Example');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onAnswer).toHaveBeenCalledWith(JSON.stringify({ first: 'Pat', last: 'Example' }));
+  });
+
+  it('takes a Social Security number only with all 9 digits', async () => {
+    const onAnswer = vi.fn(async () => {});
+    render(<QuestionCard question={question({ kind: 'ssn', prompt: 'What’s your Social Security number?' })} onAnswer={onAnswer} />);
+    const box = screen.getByLabelText('Social Security number');
+    await userEvent.type(box, '078-05-112');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('alert').textContent).toBe('Enter all 9 digits, like 123-45-6789.');
+    expect(onAnswer).not.toHaveBeenCalled();
+    await userEvent.type(box, '0');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onAnswer).toHaveBeenCalledWith('078051120');
+  });
+
+  it('takes the home address in one form', async () => {
+    const onAnswer = vi.fn(async () => {});
+    render(<QuestionCard question={question({ kind: 'address', prompt: 'What’s your home address?' })} onAnswer={onAnswer} />);
+    await userEvent.type(screen.getByLabelText('Street'), '1 Example Lane');
+    await userEvent.type(screen.getByLabelText('City'), 'Rockville');
+    await userEvent.type(screen.getByLabelText('State'), 'md');
+    await userEvent.type(screen.getByLabelText('ZIP code'), '2085');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('alert').textContent).toBe('Enter the street, city, a 2-letter state and a 5-digit ZIP code.');
+    await userEvent.type(screen.getByLabelText('ZIP code'), '0');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onAnswer).toHaveBeenCalledWith(
+      JSON.stringify({ street: '1 Example Lane', apt: null, city: 'Rockville', state: 'MD', zip: '20850' }),
+    );
+  });
+});
+
+describe('answerText', () => {
+  it('shows identity answers readably and never the whole SSN', () => {
+    expect(answerText(question({ kind: 'ssn', answer: '078051120' }))).toBe('•••-••-1120');
+    expect(answerText(question({ kind: 'name', answer: JSON.stringify({ first: 'Pat', last: 'Example' }) }))).toBe('Pat Example');
+    const home = { street: '1 Example Lane', apt: 'Apt 2', city: 'Rockville', state: 'MD', zip: '20850' };
+    expect(answerText(question({ kind: 'address', answer: JSON.stringify(home) }))).toBe('1 Example Lane, Apt 2, Rockville, MD 20850');
+    expect(answerText(question({ kind: 'money', answer: '1250050' }))).toBe('$12,500.50');
   });
 });

@@ -63,7 +63,7 @@ export interface DocumentRecord {
   error: string | null;
 }
 
-export type QuestionKind = 'yes_no' | 'choice' | 'money' | 'text' | 'confirm_amount';
+export type QuestionKind = 'yes_no' | 'choice' | 'money' | 'text' | 'confirm_amount' | 'name' | 'ssn' | 'address';
 
 export interface Question {
   /** Stable key: rule id ("foreign-accounts") or "confirm:<docId>:<extractionIndex>:<fieldPath>". */

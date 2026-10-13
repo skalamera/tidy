@@ -146,7 +146,9 @@ export function sectionStates(state: AppState, facts: TaxFacts, result: FederalR
     const open = state.questions.filter((q) => q.sectionId === def.id && q.blocking && q.answer === null).length;
     const approval = state.approvals[def.id];
     let status: SectionStatus;
-    if (approval && approval.snapshotHash === hash) status = 'approved';
+    // An approval counts only while nothing in the step is waiting for an answer: a question that appears later
+    // (say, one Tidy didn't ask before) re-opens the step even though the facts it shows haven't changed yet.
+    if (approval && approval.snapshotHash === hash && open === 0) status = 'approved';
     else if (blocked) status = approval ? 'needs_reapproval' : 'locked';
     else if (busy) status = 'working';
     else if (open > 0) status = 'needs_answers';

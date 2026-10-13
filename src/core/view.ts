@@ -3,6 +3,7 @@ import { computeFederal, type FederalResult } from '../engine/federal/form1040';
 import type { Ledger } from '../engine/ledger';
 import { computeStateReturn, stateTotals, type StateResult } from '../engine/state';
 import type { AiProvider } from '../shared/ai';
+import { maskSsn } from '../shared/answers';
 import type { Evidence, TaxFacts } from '../shared/facts';
 import type { AppState, ChatMessage, DocumentRecord, Flag, Proposal, Question, SectionId } from '../shared/state';
 import { deriveFacts, latestPriorYear } from './deriveFacts';
@@ -145,7 +146,6 @@ function stateCards(s: StateResult | null): Card[] {
     },
   ];
 }
-const maskSsn = (ssn: string) => (ssn.length >= 4 ? `•••-••-${ssn.slice(-4)}` : '—');
 const yesNo = (v: boolean | null) => (v === null ? '—' : v ? 'Yes' : 'No');
 
 function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult | null, flags: Flag[]): Record<SectionId, Card[]> {

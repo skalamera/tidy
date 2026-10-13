@@ -2,22 +2,14 @@ import { CircleCheck, Download, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import type { AppView } from '../../../core/view';
 import type { Evidence } from '../../../shared/facts';
-import type { Question, SectionId } from '../../../shared/state';
+import type { SectionId } from '../../../shared/state';
 import { tidy } from '../api';
-import { usdExact } from '../format';
-import { STATUS_LABEL } from '../labels';
+import { answerText, STATUS_LABEL } from '../labels';
 import { CardView } from './CardView';
 import { Documents } from './Documents';
 import { FlagList } from './FlagList';
 import { Icon } from './Icon';
 import { QuestionCard } from './QuestionCard';
-
-function answerText(q: Question): string {
-  if (q.answer === null) return '';
-  if (q.kind === 'yes_no' || (q.kind === 'confirm_amount' && q.answer === 'yes')) return q.answer === 'yes' ? 'Yes' : 'No';
-  if (q.kind === 'money' || q.kind === 'confirm_amount') return usdExact(Number.parseInt(q.answer, 10));
-  return q.choices?.find((c) => c.value === q.answer)?.label ?? q.answer;
-}
 
 interface Props {
   view: AppView;

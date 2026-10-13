@@ -3,23 +3,12 @@ import { computeFederal } from '../../src/engine/federal/form1040';
 import { MD_LOCAL_2025 } from '../../src/engine/params/md2025';
 import { deriveFacts } from '../../src/core/deriveFacts';
 import { deriveFlags } from '../../src/core/flags';
-import { reconcileQuestions } from '../../src/core/reconcile';
 import { buildView } from '../../src/core/view';
 import MD_SUBDIVISIONS from '../../src/shared/data/md-subdivisions-2025.json';
 import type { AppState } from '../../src/shared/state';
 import { usd } from '../../src/engine/money';
 import { div1099 } from '../fixtures/facts';
-import { doc, priorYear, stateWith, w2Extraction } from '../fixtures/state';
-
-/** Answer questions one at a time, re-running reconcile like the app does. */
-function answer(s: AppState, answers: Record<string, string>): AppState {
-  let state = { ...s, questions: reconcileQuestions(s) };
-  for (const [id, value] of Object.entries(answers)) {
-    state = { ...state, questions: state.questions.map((q) => (q.id === id ? { ...q, answer: value, answeredAt: 'now' } : q)) };
-    state = { ...state, questions: reconcileQuestions(state) };
-  }
-  return state;
-}
+import { answered as answer, doc, priorYear, stateWith, w2Extraction } from '../fixtures/state';
 
 const base = () => stateWith({ documents: [doc('py', [priorYear()]), doc('d1', [w2Extraction()])] });
 

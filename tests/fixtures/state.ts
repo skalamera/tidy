@@ -1,7 +1,18 @@
 import type { AmountT, PriorYearExtractionT, W2ExtractionT } from '../../src/shared/schemas/extraction';
+import { reconcileQuestions } from '../../src/core/reconcile';
 import { emptyState, type AppState, type DocumentRecord, type Extraction, type FieldCheck } from '../../src/shared/state';
 
 export const NOW = '2026-10-13T12:00:00.000Z';
+
+/** Answer questions one at a time, re-running reconcile like the app does. */
+export function answered(s: AppState, answers: Record<string, string>): AppState {
+  let state = { ...s, questions: reconcileQuestions(s) };
+  for (const [id, value] of Object.entries(answers)) {
+    state = { ...state, questions: state.questions.map((q) => (q.id === id ? { ...q, answer: value, answeredAt: 'now' } : q)) };
+    state = { ...state, questions: reconcileQuestions(state) };
+  }
+  return state;
+}
 
 export const amt = (amount: string | null, page = 1): AmountT => ({ amount, page, quote: amount ? `Wages ${amount}` : null });
 
@@ -66,6 +77,7 @@ export function priorYear(p: Partial<PriorYearExtractionT> = {}): Extraction {
       dependents: [],
       residentState: 'MD',
       mdCounty: 'Montgomery',
+      mdSubdivisionCode: null,
       agi: amt('430,000'),
       totalTax: amt('90,000'),
       appliedToNextYear: amt('5,000'),

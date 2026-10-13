@@ -1,7 +1,8 @@
 import { formatUsd, sumCents } from '../engine/money';
 import type { MdCounty } from '../engine/params/md2025';
 import type { PriorYearExtractionT } from '../shared/schemas/extraction';
-import type { FilingStatus, TaxFacts } from '../shared/facts';
+import { parseAddress, parseName, ssnDigits } from '../shared/answers';
+import type { FilingStatus, Person, TaxFacts } from '../shared/facts';
 import type { AppState, Question, SectionId } from '../shared/state';
 import { amountCents } from './amount';
 import MD_SUBDIVISIONS from '../shared/data/md-subdivisions-2025.json';
@@ -54,6 +55,34 @@ const cents = (answer: string) => Number.parseInt(answer, 10) || 0;
 const answerOf = (c: RuleContext, id: string) => c.state.questions.find((q) => q.id === id)?.answer ?? null;
 const stateName = (s: string | null) => (s === 'MD' ? 'Maryland' : 'your state');
 const countyLabel = (county: string) => (county.startsWith('Baltimore') ? county : `${county} County`);
+
+type Subdivision = (typeof MD_SUBDIVISIONS)[number];
+const has = (s: string | null | undefined) => Boolean(s?.trim());
+const needsSpouse = (c: RuleContext) => c.facts.filingStatus === 'mfj' || c.facts.filingStatus === 'mfs';
+const noPerson = (): Person => ({ firstName: '', lastName: '', ssn: '', dateOfBirth: null });
+const identity = (kind: 'name' | 'ssn' | 'address', prompt: string, help: string): QuestionDraft => ({
+  kind,
+  prompt,
+  help,
+  choices: null,
+  suggested: null,
+  blocking: true,
+});
+
+/** Last year's Maryland home, when the 2024 Form 502 showed a subdivision code Tidy knows. */
+function priorHome(prior: PriorYearExtractionT | null): Subdivision | null {
+  if (!prior || prior.residentState !== 'MD') return null;
+  const code = (prior.mdSubdivisionCode ?? '').trim(); // returns read before Tidy asked for the code don't have it
+  return MD_SUBDIVISIONS.find((d) => d.code === code) ?? null;
+}
+const placeName = (d: Subdivision) => (d.code.endsWith('00') ? countyLabel(d.county) : `${d.name}, ${countyLabel(d.county)}`);
+function setHome(f: TaxFacts, d: Subdivision): void {
+  f.residency.state = 'MD';
+  f.residency.mdSubdivision = { code: d.code, name: d.code.endsWith('00') ? d.county : d.name };
+  f.residency.mdCounty = d.county as MdCounty; // every county in the file has a local tax rate (tested)
+}
+/** Ask where they lived, unless they said they still live where the 2024 return says. */
+const askWhere = (c: RuleContext) => priorHome(c.prior) === null || answerOf(c, 'residence-same') === 'no';
 const exemptInterest = (f: TaxFacts) =>
   sumCents([...f.f1099Int.map((x) => x.box8TaxExemptInterest), ...f.f1099Div.map((x) => x.box12ExemptInterestDividends)]);
 /** True when an uploaded payment record already covers estimated payments of this kind. */
@@ -61,6 +90,26 @@ const hasEstimateDocs = (c: RuleContext, kind: 'federal_estimate' | 'state_estim
   c.state.documents.some((d) => d.status === 'done' && d.extractions.some((x) => x.form === 'payment' && x.data.kind === kind));
 
 export const RULES: Rule[] = [
+  {
+    id: 'your-name',
+    sectionId: 'profile',
+    applies: (c) => !(has(c.prior?.taxpayer.firstName) && has(c.prior?.taxpayer.lastName)),
+    build: () => identity('name', 'What’s your name?', 'Exactly as it appears on your Social Security card.'),
+    apply: (a, f) => {
+      const n = parseName(a);
+      if (n) f.taxpayer = { ...f.taxpayer, firstName: n.first, lastName: n.last };
+    },
+  },
+  {
+    id: 'your-ssn',
+    sectionId: 'profile',
+    applies: (c) => ssnDigits(c.prior?.taxpayer.ssn ?? '') === null,
+    build: () => identity('ssn', 'What’s your Social Security number?', 'It goes at the top of your return.'),
+    apply: (a, f) => {
+      const ssn = ssnDigits(a);
+      if (ssn) f.taxpayer = { ...f.taxpayer, ssn };
+    },
+  },
   {
     id: 'filing-status-same',
     sectionId: 'profile',
@@ -89,9 +138,57 @@ export const RULES: Rule[] = [
     },
   },
   {
+    id: 'spouse-name',
+    sectionId: 'profile',
+    applies: (c) => needsSpouse(c) && !(has(c.prior?.spouse?.firstName) && has(c.prior?.spouse?.lastName)),
+    build: () => identity('name', 'What’s your spouse’s name?', 'Exactly as it appears on their Social Security card.'),
+    apply: (a, f) => {
+      const n = parseName(a);
+      if (n) f.spouse = { ...(f.spouse ?? noPerson()), firstName: n.first, lastName: n.last };
+    },
+  },
+  {
+    id: 'spouse-ssn',
+    sectionId: 'profile',
+    applies: (c) => needsSpouse(c) && ssnDigits(c.prior?.spouse?.ssn ?? '') === null,
+    build: () => identity('ssn', 'What’s your spouse’s Social Security number?', 'It goes at the top of your return, next to their name.'),
+    apply: (a, f) => {
+      const ssn = ssnDigits(a);
+      if (ssn) f.spouse = { ...(f.spouse ?? noPerson()), ssn };
+    },
+  },
+  {
+    id: 'home-address',
+    sectionId: 'profile',
+    applies: (c) => {
+      const a = c.prior?.address;
+      return !(a && has(a.street) && has(a.city) && has(a.state) && has(a.zip));
+    },
+    build: () =>
+      identity('address', 'What’s your home address?', 'Where you live now. The IRS and Maryland mail letters and refund checks here.'),
+    apply: (a, f) => {
+      const home = parseAddress(a);
+      if (home) f.address = home;
+    },
+  },
+  {
+    id: 'residence-same',
+    sectionId: 'profile',
+    applies: (c) => priorHome(c.prior) !== null,
+    build: (c) =>
+      yesNo(
+        `Last year you lived in ${placeName(priorHome(c.prior)!)}. Did you still live there on December 31, 2025?`,
+        'Your city or county sets your Maryland local tax rate.',
+      ),
+    apply: (a, f, prior) => {
+      const home = priorHome(prior);
+      if (a === 'yes' && home) setHome(f, home);
+    },
+  },
+  {
     id: 'resident-state',
     sectionId: 'profile',
-    applies: () => true,
+    applies: askWhere,
     build: () => ({
       kind: 'choice',
       prompt: 'Where did you live on December 31, 2025?',
@@ -208,7 +305,7 @@ export const RULES: Rule[] = [
   {
     id: 'md-subdivision',
     sectionId: 'profile',
-    applies: (c) => c.facts.residency.state === 'MD',
+    applies: (c) => c.facts.residency.state === 'MD' && askWhere(c),
     build: () => ({
       kind: 'choice',
       prompt: 'Where did you live in Maryland on December 31, 2025?',
@@ -222,9 +319,7 @@ export const RULES: Rule[] = [
     }),
     apply: (a, f) => {
       const d = MD_SUBDIVISIONS.find((x) => x.code === a);
-      if (!d) return;
-      f.residency.mdSubdivision = { code: d.code, name: d.code.endsWith('00') ? d.county : d.name };
-      f.residency.mdCounty = d.county as MdCounty; // every county in the file has a local tax rate (tested)
+      if (d) setHome(f, d);
     },
   },
   {

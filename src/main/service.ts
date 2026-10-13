@@ -8,6 +8,7 @@ import { applyOverrides } from '../core/overrides';
 import { reconcileQuestions } from '../core/reconcile';
 import { buildView, type AppView } from '../core/view';
 import { AI_NAMES, type AiProvider } from '../shared/ai';
+import { normalAnswer } from '../shared/answers';
 import { IPC, type ExportResult, type Result, type ScreenContext } from '../shared/ipc';
 import type { AppState, SectionId } from '../shared/state';
 import type { LlmClient } from './ai/llm';
@@ -197,7 +198,8 @@ export class TidyService {
         }
       } else {
         const q = d.questions.find((x) => x.id === questionId);
-        if (q) Object.assign(q, { answer, answeredAt: this.deps.now() });
+        const value = q ? normalAnswer(q.kind, answer) : null; // the screen checks too; this is the trust boundary
+        if (q && value !== null) Object.assign(q, { answer: value, answeredAt: this.deps.now() });
       }
       d.questions = reconcileQuestions(d);
     });

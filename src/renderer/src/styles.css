@@ -507,6 +507,7 @@ a {
 }
 .choice-search input,
 .text-form input,
+.fields-form input,
 .key-form input {
   width: 100%;
   padding: 10px 14px;
@@ -521,6 +522,30 @@ a {
   gap: 10px;
   align-items: center;
   margin-top: 8px;
+}
+.fields-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 8px;
+}
+.fields-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 160px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.address-form .field-street {
+  flex-basis: 100%;
+}
+.address-form .field-state {
+  flex: 0 0 72px;
+}
+.address-form .field-zip {
+  flex: 0 0 120px;
 }
 .money-input {
   display: inline-flex;
@@ -542,6 +567,7 @@ a {
 .money-input:focus-within,
 .choice-search input:focus,
 .text-form input:focus,
+.fields-form input:focus,
 .key-form input:focus {
   outline: 3px solid var(--accent-soft);
   border-color: var(--accent);

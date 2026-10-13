@@ -152,4 +152,17 @@ describe('TidyService', () => {
     const { service } = await setup();
     expect(await service.exportPackage()).toEqual({ ok: false, error: expect.stringContaining('Approve every section') });
   });
+
+  it('keeps an identity answer only when it is usable, in one normal form', async () => {
+    const { service, store } = await setup();
+    const answerOf = (id: string) => store.get().questions.find((q) => q.id === id)?.answer;
+    await service.answer('your-ssn', '12345');
+    expect(answerOf('your-ssn')).toBeNull();
+    await service.answer('your-ssn', '078-05-1120');
+    expect(answerOf('your-ssn')).toBe('078051120');
+    await service.answer('your-name', JSON.stringify({ first: 'Pat', last: '' }));
+    expect(answerOf('your-name')).toBeNull();
+    await service.answer('your-name', JSON.stringify({ first: ' Pat ', last: 'Example' }));
+    expect(answerOf('your-name')).toBe(JSON.stringify({ first: 'Pat', last: 'Example' }));
+  });
 });

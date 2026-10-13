@@ -140,6 +140,7 @@ export const PriorYearExtraction = z.object({
   dependents: z.array(z.object({ firstName: z.string(), lastName: z.string(), relationship: z.string() })),
   residentState: z.string().nullable(),
   mdCounty: z.string().nullable(),
+  mdSubdivisionCode: z.string().nullable().describe('Maryland Form 502 page 1: the 4-digit political subdivision code, e.g. "1609".'),
   agi: Amount,
   totalTax: Amount,
   appliedToNextYear: Amount.describe('Form 1040 line 36: overpayment applied to next year’s estimated tax.'),

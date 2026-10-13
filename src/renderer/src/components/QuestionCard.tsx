@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { addressAnswer, nameAnswer, ssnDigits } from '../../../shared/answers';
 import type { Question } from '../../../shared/state';
 import { parseDollars, usdExact } from '../format';
 
@@ -98,6 +99,74 @@ function TextForm({ onSubmit, busy }: { onSubmit: (text: string) => void; busy: 
   );
 }
 
+/** Labeled boxes that send one answer. `check` turns the boxes into the answer, or null with `error` shown. */
+function FieldsForm<K extends string>({
+  fields,
+  check,
+  error,
+  onSubmit,
+  busy,
+  className = '',
+}: {
+  fields: { key: K; label: string; inputMode?: 'numeric'; placeholder?: string; maxLength?: number }[];
+  check: (values: Record<K, string>) => string | null;
+  error: string;
+  onSubmit: (answer: string) => void;
+  busy: boolean;
+  className?: string;
+}) {
+  const [values, setValues] = useState(() => Object.fromEntries(fields.map((f) => [f.key, ''])) as Record<K, string>);
+  const [shown, setShown] = useState<string | null>(null);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const answer = check(values);
+    if (answer === null) return setShown(error);
+    setShown(null);
+    onSubmit(answer);
+  };
+  return (
+    <form className={`fields-form ${className}`.trim()} onSubmit={submit}>
+      {fields.map((f) => (
+        <label key={f.key} className={`field-${f.key}`}>
+          {f.label}
+          <input
+            value={values[f.key]}
+            onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+            inputMode={f.inputMode}
+            placeholder={f.placeholder}
+            maxLength={f.maxLength}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+      ))}
+      <button className="btn primary" disabled={busy}>
+        Save
+      </button>
+      {shown && (
+        <p className="field-error" role="alert">
+          {shown}
+        </p>
+      )}
+    </form>
+  );
+}
+
+const NAME_FIELDS = [
+  { key: 'first', label: 'First name' },
+  { key: 'last', label: 'Last name' },
+] as const;
+const SSN_FIELDS = [{ key: 'ssn', label: 'Social Security number', inputMode: 'numeric', placeholder: '123-45-6789' }] as const;
+const ADDRESS_FIELDS = [
+  { key: 'street', label: 'Street' },
+  { key: 'apt', label: 'Apt or unit (optional)' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State', maxLength: 2 },
+  { key: 'zip', label: 'ZIP code', inputMode: 'numeric' },
+] as const;
+
+const json = (v: object | null) => (v === null ? null : JSON.stringify(v));
+
 /** One question, answered in one click when possible. Money answers are sent as whole cents ("1250050"). */
 export function QuestionCard({ question: q, onAnswer }: { question: Question; onAnswer: (answer: string) => Promise<void> }) {
   const [busy, setBusy] = useState(false);
@@ -127,6 +196,34 @@ export function QuestionCard({ question: q, onAnswer }: { question: Question; on
       {q.kind === 'choice' && q.choices && <ChoiceList choices={q.choices} onPick={send} busy={busy} />}
       {q.kind === 'money' && <MoneyForm initial={q.suggested} busy={busy} onSubmit={(c) => send(String(c))} />}
       {q.kind === 'text' && <TextForm busy={busy} onSubmit={send} />}
+      {q.kind === 'name' && (
+        <FieldsForm
+          fields={[...NAME_FIELDS]}
+          check={(v) => json(nameAnswer(v.first, v.last))}
+          error="Enter a first and a last name."
+          busy={busy}
+          onSubmit={send}
+        />
+      )}
+      {q.kind === 'ssn' && (
+        <FieldsForm
+          fields={[...SSN_FIELDS]}
+          check={(v) => ssnDigits(v.ssn)}
+          error="Enter all 9 digits, like 123-45-6789."
+          busy={busy}
+          onSubmit={send}
+        />
+      )}
+      {q.kind === 'address' && (
+        <FieldsForm
+          className="address-form"
+          fields={[...ADDRESS_FIELDS]}
+          check={(v) => json(addressAnswer(v))}
+          error="Enter the street, city, a 2-letter state and a 5-digit ZIP code."
+          busy={busy}
+          onSubmit={send}
+        />
+      )}
       {q.kind === 'confirm_amount' &&
         (fixing ? (
           <MoneyForm initial={q.suggested} busy={busy} autoFocus onSubmit={(c) => send(String(c))} />
