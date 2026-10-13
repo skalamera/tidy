@@ -1,8 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { buildView } from '../../src/core/view';
+import { buildView, problemView } from '../../src/core/view';
+import { NO_CHAT } from '../../src/shared/chat';
 import { deriveFacts } from '../../src/core/deriveFacts';
 import { reconcileQuestions } from '../../src/core/reconcile';
-import { doc, priorYear, stateWith, w2Extraction } from '../fixtures/state';
+import { doc, NOW, priorYear, stateWith, w2Extraction } from '../fixtures/state';
+
+describe('problemView', () => {
+  it('keeps documents, questions and chat, pauses every step, and never allows printing', () => {
+    const s0 = stateWith({ documents: [doc('d1', [w2Extraction()])] });
+    const s = { ...s0, questions: reconcileQuestions(s0), approvals: { profile: { approvedAt: NOW, snapshotHash: 'x' } } };
+    const chat = { ...NO_CHAT, currentId: 'c1', messages: [{ id: 'm1', role: 'user' as const, text: 'Hi', at: NOW, proposalIds: [] }] };
+    const v = problemView(s, { aiProvider: 'gemini', chat });
+    expect(v.problem).toBe(true);
+    expect(v.now).toEqual({
+      title: 'Tidy hit a snag',
+      detail:
+        'Something unexpected stopped Tidy from working out your return. Your documents and answers are saved. If you just added a file or changed an answer, try undoing it.',
+      cta: { label: 'Open documents', intent: { type: 'open_section', sectionId: 'documents' } },
+      tone: 'fix',
+    });
+    expect(new Set(v.sections.map((x) => x.status))).toEqual(new Set(['paused']));
+    expect(v.documents.map((d) => d.id)).toEqual(['d1']);
+    expect(v.questions).toBe(s.questions);
+    expect(v.chat).toBe(chat);
+    expect(v.progress).toEqual({ approved: 1, total: 10 });
+    expect(v.canExport).toBe(false);
+    expect(buildView(s, { aiProvider: 'gemini' }).problem).toBe(false);
+  });
+});
 
 describe('buildView', () => {
   it('guides a brand-new user to the welcome step', () => {

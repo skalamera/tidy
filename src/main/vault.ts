@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { rename, writeFile } from 'node:fs/promises';
 
 const MAGIC = Buffer.from('TIDY1');
 const IV_BYTES = 12;
@@ -21,6 +22,13 @@ export function open(key: Buffer, sealed: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(body), decipher.final()]);
+}
+
+/** Saves `plain` sealed to `file` atomically: a temp file first, then a rename, so a crash never leaves half a file. */
+export async function writeSealed(file: string, key: Buffer, plain: Buffer): Promise<void> {
+  const tmp = `${file}.tmp`;
+  await writeFile(tmp, seal(key, plain));
+  await rename(tmp, file);
 }
 
 /** Minimal slice of Electron's safeStorage, so tests can pass a fake. */

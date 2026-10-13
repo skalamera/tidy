@@ -74,11 +74,13 @@ export function Sidebar({
           </li>
         ))}
       </ol>
-      <div className="results">
-        <p className="eyebrow">So far</p>
-        <Result label="Federal" refund={view.summary.refund} owed={view.summary.owed} />
-        {view.summary.state && <Result label="Maryland" refund={view.summary.state.refund} owed={view.summary.state.owed} />}
-      </div>
+      {!view.problem && (
+        <div className="results">
+          <p className="eyebrow">So far</p>
+          <Result label="Federal" refund={view.summary.refund} owed={view.summary.owed} />
+          {view.summary.state && <Result label="Maryland" refund={view.summary.state.refund} owed={view.summary.state.owed} />}
+        </div>
+      )}
       {view.aiProvider && (
         <div className="ai-line">
           <span>

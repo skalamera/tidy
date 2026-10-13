@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { AiProvider } from '../../shared/ai';
 import type { AppState, DocumentRecord, Extraction } from '../../shared/state';
 import type { PriorYearExtractionT } from '../../shared/schemas/extraction';
 import { expectedFromPriorYear, sameIssuer } from '../../core/expected';
@@ -7,6 +8,7 @@ import type { ReturnStore } from '../store';
 import type { LlmClient, Source } from '../ai/llm';
 import { LlmError } from '../ai/llm';
 import { classifyDocument, extractForm, extractionPlan } from '../ai/documents';
+import { aiFailure } from '../ai/errors';
 import { checkAllAmounts } from './verify';
 
 /** PDF helpers, injected so tests don't need real PDFs. */
@@ -21,6 +23,8 @@ export interface PdfTools {
 export interface IngestDeps {
   store: ReturnStore;
   llm: LlmClient;
+  /** Which AI `llm` is, so a failure can name it. */
+  provider: AiProvider;
   pdf: PdfTools;
   now: () => string;
   newId: () => string;
@@ -144,7 +148,10 @@ export async function processDocument(deps: IngestDeps, id: string): Promise<voi
       d.questions = reconcileQuestions(d);
     });
   } catch (e) {
-    const message = e instanceof LlmError ? e.message : 'Something went wrong reading this file. Try again, or upload a clearer copy.';
+    const message =
+      e instanceof LlmError
+        ? e.message
+        : (aiFailure(deps.provider, e, 'document')?.text ?? 'Something went wrong reading this file. Try again, or upload a clearer copy.');
     await setDoc({ status: 'failed', error: message });
   }
 }

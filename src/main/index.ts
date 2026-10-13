@@ -6,6 +6,9 @@ import { connect } from './ai/connect';
 import { AiKeyStore } from './apiKey';
 import { registerIpc } from './ipc';
 import { LawSearch } from './law/search';
+import { IPC } from '../shared/ipc';
+import { ChatStore } from './chats';
+import { fileLog } from './log';
 import { buildPackage } from './pdf/package';
 import { pdfTools } from './pdf/pdfTools';
 import { TidyService } from './service';
@@ -19,6 +22,31 @@ const EXTERNAL_OK = [
   'https://www.irs.gov/',
   'https://www.marylandcomptroller.gov/',
 ];
+
+let win: BrowserWindow | null = null;
+
+const writeLog = fileLog(
+  () => path.join(app.getPath('userData'), 'logs', 'tidy.log'),
+  () => new Date().toISOString(),
+);
+/** Unexpected errors go to Tidy's log (userData/logs/tidy.log) and the console; the user gets a plain sentence. */
+const log = (where: string, e: unknown) => {
+  writeLog(where, e);
+  console.error(`[Tidy] ${where}:`, e);
+};
+const SOMETHING_WENT_WRONG = 'Something went wrong in Tidy. Your work is saved. If anything looks stuck, quit and reopen Tidy.';
+const tellWindow = () => {
+  if (win && !win.isDestroyed()) win.webContents.send(IPC.appError, SOMETHING_WENT_WRONG);
+};
+// With these listeners, Electron no longer shows its raw "A JavaScript error occurred in the main process" dialog.
+process.on('uncaughtException', (e) => {
+  log('Uncaught error', e);
+  tellWindow();
+});
+process.on('unhandledRejection', (e) => {
+  log('Unhandled rejection', e);
+  tellWindow();
+});
 
 /** Files shipped in resources/ (forms, law index) live next to the app when packaged. */
 export const resourcePath = (rel: string) =>
@@ -60,15 +88,18 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-let win: BrowserWindow | null = null;
-
 app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   const key = await loadOrCreateDataKey(path.join(userData, 'data.key'), safeStorage, { readFile, writeFile });
   const store = await ReturnStore.open(path.join(userData, 'returns', '2025'), key, () => new Date().toISOString());
+  const chats = await ChatStore.open(path.join(userData, 'returns', '2025', 'chats'), key, (file, e) =>
+    log(`Reading saved chat ${file}`, e),
+  );
   const law = await LawSearch.load(resourcePath('law/2025/chunks.json'));
   const service = new TidyService({
     store,
+    chats,
+    log,
     law,
     pdf: pdfTools,
     aiKeys: new AiKeyStore(userData, safeStorage),
@@ -91,8 +122,12 @@ app.whenReady().then(async () => {
       (await dialog.showSaveDialog(win!, { defaultPath: path.join(app.getPath('documents'), name) })).filePath ?? null,
     writeFile: (file, bytes) => writeFile(file, bytes),
   });
-  registerIpc(service, isTrustedFrame);
-  await service.init(); // before the window exists, so the first view already knows about the saved key
+  registerIpc(service, isTrustedFrame, log);
+  try {
+    await service.init(); // before the window exists, so the first view already knows about the saved key
+  } catch (e) {
+    log('Starting up', e); // still open the window: what loaded works, and the screen says what doesn't
+  }
   win = createWindow();
 });
 

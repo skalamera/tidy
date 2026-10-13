@@ -27,6 +27,17 @@ export default function App() {
     setDoc(null);
   }, []);
   useEffect(() => tidy().onNavigate(openSection), [openSection]);
+  useEffect(() => tidy().onAppError(setToast), []);
+  useEffect(() => {
+    // A call to main that failed (main has logged it). Say so instead of leaving a click that did nothing.
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason: unknown = e.reason;
+      tidy().reportError(reason instanceof Error ? (reason.stack ?? reason.message) : String(reason));
+      setToast('Something went wrong, so that didn’t finish. Your work is saved. Try again.');
+    };
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => window.removeEventListener('unhandledrejection', onRejection);
+  }, []);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 5000);
@@ -108,7 +119,13 @@ export default function App() {
         />
       </main>
       {chatOpen ? (
-        <ChatPanel view={view} sectionId={sectionId} onClose={() => setChatOpen(false)} onToast={setToast} />
+        <ChatPanel
+          view={view}
+          sectionId={sectionId}
+          onClose={() => setChatOpen(false)}
+          onToast={setToast}
+          onChangeAi={() => setChangingAi(true)}
+        />
       ) : (
         <button className="btn primary chat-fab" onClick={() => setChatOpen(true)}>
           <MessageCircle size={18} aria-hidden /> Ask Tidy

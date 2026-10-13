@@ -1,5 +1,4 @@
 import type { Cents } from '../engine/money';
-import type { AiProvider } from './ai';
 import type {
   ClassificationT,
   DocType,
@@ -26,7 +25,8 @@ export const SECTION_IDS = [
 ] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
-export type SectionStatus = 'locked' | 'working' | 'needs_answers' | 'ready' | 'approved' | 'needs_reapproval';
+/** `paused`: Tidy couldn't work out the return, so no step can be checked or approved until that's fixed. */
+export type SectionStatus = 'locked' | 'working' | 'needs_answers' | 'ready' | 'approved' | 'needs_reapproval' | 'paused';
 
 export type DocStatus = 'queued' | 'reading' | 'done' | 'unsupported' | 'failed' | 'duplicate';
 
@@ -116,14 +116,6 @@ export interface Proposal {
   createdAt: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-  at: string;
-  proposalIds: string[];
-}
-
 export interface AppState {
   version: 1;
   taxYear: 2025;
@@ -135,10 +127,8 @@ export interface AppState {
   approvals: Partial<Record<SectionId, Approval>>;
   /** Payers we expect this year (from last year's return); `dismissed` = "I won't get this one". */
   expected: { key: string; name: string; form: string; dismissed: boolean }[];
+  /** Changes suggested in chat. Chats themselves are saved apart from the return (main/chats.ts). */
   proposals: Proposal[];
-  /** `messages` is what the UI shows; `transcript` is the raw API conversation in the format of the AI that wrote it
-   *  (`transcriptBy`; missing in returns started before Gemini support, when it was always Claude). */
-  chat: { messages: ChatMessage[]; transcript: unknown[]; transcriptBy?: AiProvider };
 }
 
 export function emptyState(nowIso: string): AppState {
@@ -153,6 +143,5 @@ export function emptyState(nowIso: string): AppState {
     approvals: {},
     expected: [],
     proposals: [],
-    chat: { messages: [], transcript: [] },
   };
 }

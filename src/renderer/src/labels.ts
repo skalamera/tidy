@@ -1,3 +1,4 @@
+import { localDay } from '../../core/chatSearch';
 import { addressText, maskSsn, parseAddress, parseName } from '../../shared/answers';
 import type { Question, SectionStatus } from '../../shared/state';
 import { usdExact } from './format';
@@ -10,7 +11,25 @@ export const STATUS_LABEL: Record<SectionStatus, string> = {
   ready: 'Ready to approve',
   approved: 'Approved',
   needs_reapproval: 'Changed, approve again',
+  paused: 'Paused',
 };
+
+/** A day (YYYY-MM-DD) the way the chat list heads it: Today, Yesterday, or the date, with the year only when it isn't this one. */
+export function dayLabel(day: string, today: Date): string {
+  if (day === localDay(today.toISOString())) return 'Today';
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (day === localDay(yesterday.toISOString())) return 'Yesterday';
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(year, month - 1, date).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    ...(year === today.getFullYear() ? {} : { year: 'numeric' }),
+  });
+}
+
+/** A time of day the way people say it, like 2:05 PM. */
+export const timeLabel = (iso: string): string => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
 /** An answer the way the user reads it back. A Social Security number shows only its last 4 digits. */
 export function answerText(q: Question): string {

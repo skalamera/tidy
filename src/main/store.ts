@@ -1,8 +1,8 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { emptyState, type AppState } from '../shared/state';
-import { open, seal } from './vault';
+import { open, writeSealed } from './vault';
 
 /** The single source of truth. All writes go through update(), which is serialized, persisted
  *  atomically (write temp file, then rename) and announced with a 'change' event. */
@@ -58,10 +58,7 @@ export class ReturnStore extends EventEmitter {
     return rm(path.join(this.dir, 'docs', `${id}.bin`), { force: true });
   }
 
-  private async write(rel: string, plain: Buffer): Promise<void> {
-    const target = path.join(this.dir, rel);
-    const tmp = `${target}.tmp`;
-    await writeFile(tmp, seal(this.key, plain));
-    await rename(tmp, target);
+  private write(rel: string, plain: Buffer): Promise<void> {
+    return writeSealed(path.join(this.dir, rel), this.key, plain);
   }
 }

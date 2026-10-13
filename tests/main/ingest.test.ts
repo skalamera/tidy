@@ -1,3 +1,4 @@
+import { ApiError } from '@google/genai';
 import { describe, expect, it } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -27,10 +28,27 @@ function classification(docType: string, issuerName: string, parts: { form: stri
 async function setup(pages: string[] | null, respond: ConstructorParameters<typeof FakeLlm>[0]) {
   const store = await ReturnStore.open(await mkdtemp(path.join(tmpdir(), 'tidy-ingest-')), randomBytes(32), NOW);
   const llm = new FakeLlm(respond);
-  return { store, llm, deps: { store, llm, pdf: pdf(pages), now: NOW, newId } };
+  return { store, llm, deps: { store, llm, provider: 'gemini' as const, pdf: pdf(pages), now: NOW, newId } };
 }
 
 describe('ingest pipeline', () => {
+  it('says what the AI service said when it can’t read a file', async () => {
+    const quota = new ApiError({
+      status: 429,
+      message: JSON.stringify({ error: { code: 429, message: 'You exceeded your current quota.', status: 'RESOURCE_EXHAUSTED' } }),
+    });
+    const { store, deps } = await setup(['Form W-2 2025'], () => {
+      throw quota;
+    });
+    const { id } = await addFile(deps, 'w2.pdf', Buffer.from('%PDF w2'));
+    await processDocument(deps, id);
+    expect(store.get().documents[0]).toMatchObject({
+      status: 'failed',
+      error:
+        'Your Gemini key has hit its usage limit, so Gemini can’t read this file right now. Wait a minute and try again. If it keeps happening, check its plan and billing in Google AI Studio, or switch Tidy to Claude.',
+    });
+  });
+
   it('reads last year’s return, seeds expected documents and profile questions', async () => {
     const { store, deps } = await setup(['Form 1040 2024 ... 430,000 ... 5,000'], (call) =>
       call.system === CLASSIFY_SYSTEM ? classification('prior_year_federal_return', 'IRS') : priorYear().data,

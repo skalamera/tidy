@@ -5,7 +5,8 @@ import { computeStateReturn, stateTotals, type StateResult } from '../engine/sta
 import type { AiProvider } from '../shared/ai';
 import { maskSsn } from '../shared/answers';
 import type { Evidence, TaxFacts } from '../shared/facts';
-import type { AppState, ChatMessage, DocumentRecord, Flag, Proposal, Question, SectionId } from '../shared/state';
+import { NO_CHAT, type ChatView } from '../shared/chat';
+import type { AppState, DocumentRecord, Flag, Proposal, Question, SectionId } from '../shared/state';
 import { deriveFacts, latestPriorYear } from './deriveFacts';
 import { isReceived, missingExpected } from './expected';
 import { deriveFlags } from './flags';
@@ -59,11 +60,14 @@ export interface AppView {
     itemizing: boolean;
     state: { code: 'MD'; totalTax: Cents; refund: Cents; owed: Cents } | null;
   };
+  /** Suggestions made in the open chat, in any state, so its cards show how each one ended. */
   proposals: Proposal[];
-  chat: ChatMessage[];
+  chat: ChatView;
   /** The AI that reads documents and answers chat; null until the user connects one. */
   aiProvider: AiProvider | null;
   canExport: boolean;
+  /** Working out the return failed, so steps are paused and totals hidden (see problemView). */
+  problem: boolean;
 }
 
 const KIND: Record<string, string> = {
@@ -370,6 +374,60 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
 
 export interface ViewContext {
   aiProvider: AiProvider | null;
+  /** Chats are kept apart from the return; leaving this out means none. */
+  chat?: ChatView;
+}
+
+const docViews = (state: AppState): DocView[] =>
+  state.documents.map((d) => ({
+    id: d.id,
+    fileName: d.fileName,
+    status: d.status,
+    kind: KIND[d.docType ?? ''] ?? 'Document',
+    issuer: d.classification?.issuerName ?? null,
+    pageCount: d.pageCount,
+    error: d.error,
+    superseded: d.supersededBy !== null,
+  }));
+
+const chatProposals = (state: AppState, chat: ChatView): Proposal[] => {
+  const shown = new Set(chat.messages.flatMap((m) => m.proposalIds));
+  return state.proposals.filter((p) => shown.has(p.id));
+};
+
+/** What the screen shows when working out the return throws (a bug). Everything that doesn't need the math keeps
+ *  working, so the user can undo what they just did; no step can be approved and nothing can be printed. */
+export function problemView(state: AppState, ctx: ViewContext): AppView {
+  const chat = ctx.chat ?? NO_CHAT;
+  return {
+    now: {
+      title: 'Tidy hit a snag',
+      detail:
+        'Something unexpected stopped Tidy from working out your return. Your documents and answers are saved. If you just added a file or changed an answer, try undoing it.',
+      cta: { label: 'Open documents', intent: { type: 'open_section', sectionId: 'documents' } },
+      tone: 'fix',
+    },
+    sections: SECTIONS.map((def) => ({
+      id: def.id,
+      title: def.title,
+      icon: def.icon,
+      blurb: def.blurb,
+      status: 'paused',
+      openQuestions: state.questions.filter((q) => q.sectionId === def.id && q.blocking && q.answer === null).length,
+      hash: '',
+    })),
+    progress: { approved: Object.keys(state.approvals).length, total: SECTIONS.length },
+    details: Object.fromEntries(SECTIONS.map((s) => [s.id, []])) as unknown as Record<SectionId, Card[]>,
+    questions: state.questions,
+    flags: [],
+    documents: docViews(state),
+    summary: { agi: 0, taxableIncome: 0, totalTax: 0, payments: 0, refund: 0, owed: 0, itemizing: false, state: null },
+    proposals: chatProposals(state, chat),
+    chat,
+    aiProvider: ctx.aiProvider,
+    canExport: false,
+    problem: true,
+  };
 }
 
 /** Everything the renderer draws, computed in main from the stored state. Pure. */
@@ -396,16 +454,7 @@ export function buildView(state: AppState, ctx: ViewContext): AppView {
     details: details(state, facts, result, stateResult, flags),
     questions: state.questions,
     flags,
-    documents: state.documents.map((d) => ({
-      id: d.id,
-      fileName: d.fileName,
-      status: d.status,
-      kind: KIND[d.docType ?? ''] ?? 'Document',
-      issuer: d.classification?.issuerName ?? null,
-      pageCount: d.pageCount,
-      error: d.error,
-      superseded: d.supersededBy !== null,
-    })),
+    documents: docViews(state),
     summary: {
       agi: result.agi,
       taxableIncome: result.taxableIncome,
@@ -423,9 +472,10 @@ export function buildView(state: AppState, ctx: ViewContext): AppView {
           }
         : null,
     },
-    proposals: state.proposals.filter((p) => p.status === 'pending'),
-    chat: state.chat.messages,
+    proposals: chatProposals(state, ctx.chat ?? NO_CHAT),
+    chat: ctx.chat ?? NO_CHAT,
     aiProvider: ctx.aiProvider,
     canExport: sections.every((s) => s.id === 'file' || s.status === 'approved') && !flags.some((x) => x.severity === 'blocker'),
+    problem: false,
   };
 }

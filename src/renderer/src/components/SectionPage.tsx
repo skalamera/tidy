@@ -118,7 +118,9 @@ export function SectionPage({ view, sectionId, onOpenDoc, onApproved, onExport, 
               <p>
                 {section.status === 'ready' || section.status === 'needs_reapproval'
                   ? 'Does everything above look right?'
-                  : 'Answer the questions above first.'}
+                  : section.status === 'paused'
+                    ? 'Tidy can’t check this step until the snag above is sorted out.'
+                    : 'Answer the questions above first.'}
               </p>
               <button
                 className="btn primary big"

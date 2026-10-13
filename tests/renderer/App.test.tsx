@@ -3,10 +3,11 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcileQuestions } from '../../src/core/reconcile';
-import { buildView, type AppView } from '../../src/core/view';
+import { buildView, problemView, type AppView } from '../../src/core/view';
 import type { TidyApi } from '../../src/shared/ipc';
 import { emptyState } from '../../src/shared/state';
 import App from '../../src/renderer/src/App';
+import { ErrorBoundary } from '../../src/renderer/src/components/ErrorBoundary';
 import { doc, NOW, priorYear, stateWith, w2Extraction } from '../fixtures/state';
 
 vi.mock('../../src/renderer/src/pdf', () => ({ openPdf: vi.fn(), drawPage: vi.fn() }));
@@ -19,6 +20,7 @@ function install(view: AppView, overrides: Partial<TidyApi> = {}) {
     onView: () => () => undefined,
     onChatDelta: () => () => undefined,
     onNavigate: () => () => undefined,
+    onAppError: () => () => undefined,
     ...overrides,
   };
   window.tidy = new Proxy(base, {
@@ -108,6 +110,54 @@ describe('App', () => {
     const steps = await screen.findByRole('navigation', { name: 'Steps' });
     expect(within(steps).getByRole('img', { name: 'Tidy' })).toBeTruthy();
     expect(within(steps).getByText('2025 tax return')).toBeTruthy();
+  });
+
+  it('shows a plain message instead of a raw error when something fails in the background', async () => {
+    install(workingView(), {
+      onAppError: (cb) => {
+        setTimeout(() => cb('Something went wrong in Tidy. Your work is saved.'), 0);
+        return () => undefined;
+      },
+    });
+    render(<App />);
+    expect((await screen.findByRole('status')).textContent).toBe('Something went wrong in Tidy. Your work is saved.');
+  });
+
+  it('says so when a click didn’t go through, and records why', async () => {
+    const spies = install(workingView());
+    render(<App />);
+    await screen.findByRole('navigation', { name: 'Steps' });
+    window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error('IPC failed') }));
+    expect((await screen.findByRole('status')).textContent).toBe(
+      'Something went wrong, so that didn’t finish. Your work is saved. Try again.',
+    );
+    expect(spies.reportError).toHaveBeenCalledWith(expect.stringContaining('IPC failed'));
+  });
+
+  it('when Tidy hits a snag, says so, keeps the steps open and hides the totals', async () => {
+    install(problemView(stateWith({ documents: [doc('d1', [w2Extraction()])] }), { aiProvider: 'gemini' }));
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Tidy hit a snag' })).toBeTruthy();
+    expect(screen.queryByText('So far')).toBeNull();
+    const steps = screen.getByRole('navigation', { name: 'Steps' });
+    expect((within(steps).getByRole('button', { name: /Your documents/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('shows a way out instead of a blank window when a screen breaks', () => {
+    const spies = install(workingView());
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined); // React reports the error too
+    const Broken = () => {
+      throw new Error('render failed');
+    };
+    render(
+      <ErrorBoundary>
+        <Broken />
+      </ErrorBoundary>,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Something went wrong on this screen');
+    expect(screen.getByRole('button', { name: 'Reload Tidy' })).toBeTruthy();
+    expect(spies.reportError).toHaveBeenCalledWith(expect.stringContaining('render failed'));
+    quiet.mockRestore();
   });
 
   it('lets someone without last year’s return carry on without it', async () => {

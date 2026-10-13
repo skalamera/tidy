@@ -6,13 +6,17 @@ import { amountAt } from '../core/amount';
 import { deriveFacts } from '../core/deriveFacts';
 import { applyOverrides } from '../core/overrides';
 import { reconcileQuestions } from '../core/reconcile';
-import { buildView, type AppView } from '../core/view';
+import { searchChats as matchingChats } from '../core/chatSearch';
+import { buildView, problemView, type AppView, type ViewContext } from '../core/view';
 import { AI_NAMES, type AiProvider } from '../shared/ai';
 import { normalAnswer } from '../shared/answers';
+import { chatTitle, type ChatHit, type ChatMessage, type ChatQuery, type ChatView, type Conversation } from '../shared/chat';
 import { IPC, type ExportResult, type Result, type ScreenContext } from '../shared/ipc';
 import type { AppState, SectionId } from '../shared/state';
 import type { LlmClient } from './ai/llm';
 import { runChatTurn, type ChatModel, type ToolHandlers } from './ai/chat';
+import { aiFailure } from './ai/errors';
+import type { ChatStore } from './chats';
 import { keyProblem } from './apiKey';
 import type { LawSearch } from './law/search';
 import { addFile, processDocument, type PdfTools } from './pipeline/ingest';
@@ -26,6 +30,10 @@ export interface Connection {
 
 export interface ServiceDeps {
   store: ReturnStore;
+  /** Saved chats, kept apart from the return. */
+  chats: ChatStore;
+  /** Records an unexpected error for debugging. The user sees a plain sentence instead. */
+  log: (where: string, error: unknown) => void;
   /** The saved API key and which AI it is for, encrypted on disk. */
   aiKeys: { load(): Promise<{ provider: AiProvider; key: string } | null>; save(provider: AiProvider, key: string): Promise<void> };
   pdf: PdfTools;
@@ -44,6 +52,15 @@ export interface ServiceDeps {
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PARALLEL_READS = 2;
 
+/** Before chat history, the return's state held one chat. */
+interface ChatBeforeHistory {
+  messages: ChatMessage[];
+  transcript: unknown[];
+  transcriptBy?: AiProvider;
+}
+/** That chat's id once it moves into the saved chats. */
+export const CHAT_BEFORE_HISTORY = 'chat-before-history';
+
 /** The app's backend: owns every state change, the reading queue and chat, and pushes a fresh view on each change. */
 export class TidyService {
   private conn: Connection | null = null;
@@ -52,15 +69,21 @@ export class TidyService {
   private readonly reading = new Set<string>();
   private readonly inFlight = new Set<Promise<void>>();
   private chatBusy = false;
+  /** The chat Tidy is answering right now. */
+  private busyId: string | null = null;
+  /** The last error from working out the return, so a lasting one is logged once, not on every change. */
+  private viewError: string | null = null;
   private publishTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: ServiceDeps) {
     deps.store.on('change', () => this.publish());
+    deps.chats.on('change', () => this.publish());
   }
 
   async init(): Promise<void> {
     const saved = await this.deps.aiKeys.load();
     if (saved) this.conn = await this.deps.connect(saved.provider, saved.key, false);
+    await this.moveChatBeforeHistory();
     await this.deps.store.update((d) => {
       for (const doc of d.documents) if (doc.status === 'reading') doc.status = 'queued'; // the app quit mid-read
       d.questions = reconcileQuestions(d);
@@ -68,8 +91,58 @@ export class TidyService {
     this.pump();
   }
 
+  /** The chat saved inside the return before chat history becomes the first saved chat, still open. */
+  private async moveChatBeforeHistory(): Promise<void> {
+    const old = (this.deps.store.get() as AppState & { chat?: ChatBeforeHistory }).chat;
+    if (!old) return;
+    const { chats } = this.deps;
+    if (old.messages.length > 0 && !chats.get(CHAT_BEFORE_HISTORY)) {
+      const firstQuestion = old.messages.find((m) => m.role === 'user') ?? old.messages[0];
+      await chats.save({
+        id: CHAT_BEFORE_HISTORY,
+        title: chatTitle(firstQuestion.text),
+        createdAt: old.messages[0].at,
+        updatedAt: old.messages[old.messages.length - 1].at,
+        messages: old.messages,
+        transcript: old.transcript,
+        transcriptBy: old.transcriptBy ?? 'anthropic', // before Gemini support it was always Claude
+      });
+      await chats.setCurrent(CHAT_BEFORE_HISTORY);
+    }
+    await this.deps.store.update((d) => {
+      delete (d as AppState & { chat?: unknown }).chat;
+    });
+  }
+
+  /** Never throws. If working out the return fails (a bug), the error is logged and the screen says so plainly. */
   view(): AppView {
-    return buildView(this.deps.store.get(), { aiProvider: this.conn?.provider ?? null });
+    const state = this.deps.store.get();
+    const ctx: ViewContext = { aiProvider: this.conn?.provider ?? null, chat: this.chatView() };
+    try {
+      const v = buildView(state, ctx);
+      this.viewError = null;
+      return v;
+    } catch (e) {
+      const seen = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      if (seen !== this.viewError) {
+        this.viewError = seen;
+        this.deps.log('Working out the return', e);
+      }
+      return problemView(state, ctx);
+    }
+  }
+
+  private chatView(): ChatView {
+    const { chats } = this.deps;
+    const currentId = chats.currentId();
+    return {
+      currentId,
+      messages: (currentId !== null && chats.get(currentId)?.messages) || [],
+      conversations: chats
+        .all()
+        .map((c) => ({ id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt, messageCount: c.messages.length })),
+      busyId: this.busyId,
+    };
   }
 
   /** Resolves when no document is being read. For tests and orderly shutdown. */
@@ -104,7 +177,10 @@ export class TidyService {
     let conn: Connection;
     try {
       conn = await this.deps.connect(provider, key, true);
-    } catch {
+    } catch (e) {
+      this.deps.log('Connecting the AI', e);
+      const failure = aiFailure(provider, e, 'chat');
+      if (failure && ['offline', 'busy', 'rate_limited'].includes(failure.problem)) return { ok: false, error: failure.text };
       return { ok: false, error: `${AI_NAMES[provider].company} didn’t accept that key. Check it and try again.` };
     }
     await this.deps.aiKeys.save(provider, key);
@@ -157,7 +233,14 @@ export class TidyService {
   getDocumentBytes = (id: string) => this.deps.store.getDocument(id).then((b) => new Uint8Array(b));
 
   private ingestDeps() {
-    return { store: this.deps.store, llm: this.conn?.llm as LlmClient, pdf: this.deps.pdf, now: this.deps.now, newId: this.deps.newId };
+    return {
+      store: this.deps.store,
+      llm: this.conn?.llm as LlmClient,
+      provider: this.conn?.provider ?? 'anthropic',
+      pdf: this.deps.pdf,
+      now: this.deps.now,
+      newId: this.deps.newId,
+    };
   }
 
   /** Reads at most two documents at a time. Documents wait as "queued" until an API key exists. */
@@ -280,42 +363,77 @@ export class TidyService {
     };
   }
 
+  /** Asks in the open chat, or starts a new one with this as its first question. */
   async sendChat(text: string): Promise<void> {
     const conn = this.conn;
     if (this.chatBusy || !conn || text.trim() === '') return;
     this.chatBusy = true;
-    const before = new Set(this.deps.store.get().proposals.map((p) => p.id));
-    const say = (role: 'user' | 'assistant', t: string, proposalIds: string[] = []) =>
-      this.deps.store.update((d) => {
-        d.chat.messages.push({ id: this.deps.newId(), role, text: t, at: this.deps.now(), proposalIds });
-      });
+    const { chats } = this.deps;
     try {
-      await say('user', text);
-      const chat = this.deps.store.get().chat;
+      let id = chats.currentId();
+      if (id === null || !chats.get(id)) {
+        id = this.deps.newId();
+        const at = this.deps.now();
+        await chats.save({ id, title: chatTitle(text), createdAt: at, updatedAt: at, messages: [], transcript: [], transcriptBy: null });
+        await chats.setCurrent(id);
+      }
+      this.busyId = id;
+      await this.answerIn(conn, id, text);
+    } finally {
+      this.busyId = null;
+      this.chatBusy = false;
+      this.publish();
+    }
+  }
+
+  /** Adds the question and its answer to chat `id`. If the AI fails, the answer says what went wrong, plainly. */
+  private async answerIn(conn: Connection, id: string, text: string): Promise<void> {
+    const { chats } = this.deps;
+    const before = new Set(this.deps.store.get().proposals.map((p) => p.id));
+    const add = async (m: Omit<ChatMessage, 'id' | 'at'>, patch: Partial<Conversation> = {}) => {
+      const c = chats.get(id);
+      if (!c) return; // deleted while Tidy was answering
+      const at = this.deps.now();
+      await chats.save({ ...c, ...patch, updatedAt: at, messages: [...c.messages, { id: this.deps.newId(), at, ...m }] });
+    };
+    try {
+      await add({ role: 'user', text, proposalIds: [] });
+      const c = chats.get(id);
       const out = await runChatTurn({
         model: conn.chat,
-        // A transcript only ever goes back to the AI that wrote it. Before Gemini support, that was always Claude.
-        transcript: (chat.transcriptBy ?? 'anthropic') === conn.provider ? chat.transcript : [],
+        transcript: c?.transcriptBy === conn.provider ? c.transcript : [], // a transcript only goes back to the AI that wrote it
         userText: text,
         context: this.chatContext(this.view()),
         handlers: this.chatHandlers(),
         onText: (delta) => this.deps.emit(IPC.chatDelta, delta),
       });
-      await this.deps.store.update((d) => {
-        d.chat.transcript = out.transcript;
-        d.chat.transcriptBy = conn.provider;
-      });
       const created = this.deps.store
         .get()
         .proposals.filter((p) => !before.has(p.id))
         .map((p) => p.id);
-      await say('assistant', out.text, created);
-    } catch {
-      await say('assistant', `I couldn’t reach ${AI_NAMES[conn.provider].ai} just now. Check your internet connection and try again.`);
-    } finally {
-      this.chatBusy = false;
+      await add({ role: 'assistant', text: out.text, proposalIds: created }, { transcript: out.transcript, transcriptBy: conn.provider });
+    } catch (e) {
+      this.deps.log('Chat', e);
+      const failure = aiFailure(conn.provider, e, 'chat');
+      await add({
+        role: 'assistant',
+        text: failure?.text ?? `Something went wrong on Tidy’s side, so ${AI_NAMES[conn.provider].ai} couldn’t answer. Try again.`,
+        proposalIds: [],
+        error: { changeAi: failure?.changeAi ?? false },
+      });
     }
   }
+
+  /** The panel shows a new, empty chat. It's saved once its first question is sent. */
+  newChat = (): Promise<void> => this.deps.chats.setCurrent(null);
+
+  async openChat(id: string): Promise<void> {
+    if (this.deps.chats.get(id)) await this.deps.chats.setCurrent(id);
+  }
+
+  deleteChat = (id: string): Promise<void> => this.deps.chats.remove(id);
+
+  searchChats = async (query: ChatQuery): Promise<ChatHit[]> => matchingChats(this.deps.chats.all(), query);
 
   async decideProposal(id: string, accept: boolean): Promise<Result> {
     const p = this.deps.store.get().proposals.find((x) => x.id === id);
@@ -356,7 +474,15 @@ export class TidyService {
     if (!this.view().canExport) return { ok: false, error: 'Approve every section and fix anything marked “Must fix” first.' };
     const file = await this.deps.savePath('2025 Tax Return.pdf');
     if (!file) return { ok: false, error: 'Cancelled.' };
-    await this.deps.writeFile(file, await this.deps.buildPackage(this.deps.store.get()));
+    try {
+      await this.deps.writeFile(file, await this.deps.buildPackage(this.deps.store.get()));
+    } catch (e) {
+      this.deps.log('Making the PDF', e);
+      return {
+        ok: false,
+        error: 'Tidy couldn’t make your PDF, so nothing was saved. Try again, and if it keeps happening, quit and reopen Tidy.',
+      };
+    }
     return { ok: true, path: file };
   }
 }

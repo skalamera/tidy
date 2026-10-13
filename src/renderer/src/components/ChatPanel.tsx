@@ -1,9 +1,10 @@
-import { ArrowUp, Check, X } from 'lucide-react';
+import { ArrowUp, Check, History, SquarePen, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { AppView } from '../../../core/view';
 import type { Proposal, SectionId } from '../../../shared/state';
 import { tidy } from '../api';
 import { Logo } from './Brand';
+import { ChatHistory } from './ChatHistory';
 
 const STARTERS: Partial<Record<SectionId, string[]>> = {
   documents: ['What documents do I still need?', 'Can I upload a photo of a form?'],
@@ -41,35 +42,59 @@ function ProposalCard({ p, onToast }: { p: Proposal; onToast: (t: string) => voi
   );
 }
 
-/** "Ask Tidy": the AI, with the current screen and the whole return as context. It can suggest changes, never make them. */
+function ChatHeader({ onClose }: { onClose: () => void }) {
+  return (
+    <header>
+      <Logo size={28} />
+      <div>
+        <strong>Ask Tidy</strong>
+        <span>Sees this screen and your whole return</span>
+      </div>
+      <button className="btn ghost small" onClick={onClose} aria-label="Close chat">
+        <X size={16} />
+      </button>
+    </header>
+  );
+}
+
+/** "Ask Tidy": the AI, with the current screen and the whole return as context. It can suggest changes, never make
+ *  them. Every chat is saved: "All chats" finds, reopens and deletes them, and "New chat" starts fresh. */
 export function ChatPanel({
   view,
   sectionId,
   onClose,
   onToast,
+  onChangeAi,
 }: {
   view: AppView;
   sectionId: SectionId;
   onClose: () => void;
   onToast: (t: string) => void;
+  onChangeAi: () => void;
 }) {
+  const chat = view.chat;
+  const [showHistory, setShowHistory] = useState(false);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState('');
   const end = useRef<HTMLDivElement>(null);
+  // Until the first view of a brand-new chat arrives, the question is in flight with no chat to show it in yet.
+  const answeringHere = (chat.busyId !== null && chat.busyId === chat.currentId) || (sending && chat.busyId === null);
+  const answeringElsewhere = chat.busyId !== null && chat.busyId !== chat.currentId;
 
+  // Only one answer is ever in progress, and only while it is does the text below show; send() clears it.
   useEffect(() => tidy().onChatDelta((d) => setStreaming((s) => s + d)), []);
-  useEffect(() => end.current?.scrollIntoView?.({ block: 'end' }), [view.chat.length, streaming]);
+  useEffect(() => end.current?.scrollIntoView?.({ block: 'end' }), [chat.currentId, chat.messages.length, streaming]);
 
   const send = async (message: string) => {
-    if (!message.trim() || sending) return;
+    if (!message.trim() || sending || chat.busyId !== null) return;
     setText('');
+    setStreaming('');
     setSending(true);
     try {
       await tidy().sendChat(message.trim());
     } finally {
       setSending(false);
-      setStreaming('');
     }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -79,31 +104,51 @@ export function ChatPanel({
     }
   };
 
+  if (showHistory) {
+    return (
+      <aside className="chat" aria-label="Ask Tidy">
+        <ChatHeader onClose={onClose} />
+        <ChatHistory
+          chat={chat}
+          onOpen={(id) => {
+            void tidy().openChat(id);
+            setShowHistory(false);
+          }}
+          onBack={() => setShowHistory(false)}
+        />
+      </aside>
+    );
+  }
+
   return (
     <aside className="chat" aria-label="Ask Tidy">
-      <header>
-        <Logo size={28} />
-        <div>
-          <strong>Ask Tidy</strong>
-          <span>Sees this screen and your whole return</span>
-        </div>
-        <button className="btn ghost small" onClick={onClose} aria-label="Close chat">
-          <X size={16} />
+      <ChatHeader onClose={onClose} />
+      <div className="chat-tools">
+        <button className="btn ghost small" onClick={() => setShowHistory(true)}>
+          <History size={15} aria-hidden /> All chats
         </button>
-      </header>
+        <button
+          className="btn ghost small"
+          onClick={() => void tidy().newChat()}
+          disabled={chat.currentId === null}
+          title={chat.currentId === null ? 'This is already a new chat' : 'Start a new chat. This one stays in All chats.'}
+        >
+          <SquarePen size={15} aria-hidden /> New chat
+        </button>
+      </div>
       <div className="chat-log">
-        {view.chat.length === 0 && (
+        {chat.messages.length === 0 && !answeringHere && (
           <div className="starters">
             <p className="muted">Ask anything about your taxes or this screen.</p>
             {(STARTERS[sectionId] ?? DEFAULT_STARTERS).map((s) => (
-              <button key={s} className="btn choice small" onClick={() => void send(s)}>
+              <button key={s} className="btn choice small" onClick={() => void send(s)} disabled={chat.busyId !== null}>
                 {s}
               </button>
             ))}
           </div>
         )}
-        {view.chat.map((m) => (
-          <div key={m.id} className={`msg ${m.role}`}>
+        {chat.messages.map((m) => (
+          <div key={m.id} className={`msg ${m.role}${m.error ? ' error' : ''}`}>
             {m.text.split(/\n{2,}/).map((para, i) => (
               <p key={i}>{para}</p>
             ))}
@@ -111,23 +156,36 @@ export function ChatPanel({
               const p = view.proposals.find((x) => x.id === id);
               return p ? <ProposalCard key={id} p={p} onToast={onToast} /> : null;
             })}
+            {m.error?.changeAi && (
+              <button className="btn small" onClick={onChangeAi}>
+                Change AI
+              </button>
+            )}
           </div>
         ))}
-        {sending && <div className="msg assistant typing">{streaming || 'Thinking…'}</div>}
+        {answeringHere && <div className="msg assistant typing">{streaming || 'Thinking…'}</div>}
         <div ref={end} />
       </div>
       <div className="chat-input">
-        <textarea
-          aria-label="Message"
-          placeholder="Ask about this screen…"
-          rows={2}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKey}
-        />
-        <button className="btn primary icon" aria-label="Send" disabled={sending || !text.trim()} onClick={() => void send(text)}>
-          <ArrowUp size={18} />
-        </button>
+        {answeringElsewhere && <p className="chat-note">Tidy is still answering in another chat.</p>}
+        <div className="chat-input-row">
+          <textarea
+            aria-label="Message"
+            placeholder="Ask about this screen…"
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKey}
+          />
+          <button
+            className="btn primary icon"
+            aria-label="Send"
+            disabled={sending || chat.busyId !== null || !text.trim()}
+            onClick={() => void send(text)}
+          >
+            <ArrowUp size={18} />
+          </button>
+        </div>
       </div>
     </aside>
   );
