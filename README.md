@@ -1,6 +1,6 @@
 # tidy
 
-An Electron application with React and TypeScript
+A Mac app that prepares a 2025 federal and Maryland resident tax return with AI. The full build plan is in [docs/plan.md](docs/plan.md).
 
 ## Recommended IDE Setup
 
