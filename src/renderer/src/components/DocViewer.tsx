@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy } from '../pdfjs';
 import { useEffect, useRef, useState } from 'react';
 import type { DocView } from '../../../core/view';
 import { tidy } from '../api';
