@@ -1145,7 +1145,7 @@ a {
   position: fixed;
   left: 50%;
   bottom: 24px;
-  transform: translateX(-50%);
+  translate: -50% 0; /* not transform: the rise animation animates transform and would undo the centring */
   background: var(--ink);
   color: white;
   padding: 10px 18px;
