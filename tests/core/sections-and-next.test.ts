@@ -56,6 +56,10 @@ describe('nextAction', () => {
     expect(nextAction({ ...base, welcomed: false }).cta?.intent).toEqual({ type: 'welcome' });
     expect(nextAction({ ...base, hasApiKey: false }).cta?.intent).toEqual({ type: 'open_settings' });
     expect(nextAction({ ...base, hasPriorYear: false }).cta?.intent).toEqual({ type: 'upload' });
+    expect(nextAction({ ...base, hasPriorYear: false }).secondary).toEqual({
+      label: 'I don’t have it',
+      intent: { type: 'skip_prior_year' },
+    });
     expect(nextAction({ ...base, hasPriorYear: false, priorYearSkipped: true, sections: sec('ready') }).title).toBe(
       'Review and approve: Wages',
     );

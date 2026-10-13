@@ -109,4 +109,12 @@ describe('App', () => {
     expect(within(steps).getByRole('img', { name: 'Tidy' })).toBeTruthy();
     expect(within(steps).getByText('2025 tax return')).toBeTruthy();
   });
+
+  it('lets someone without last year’s return carry on without it', async () => {
+    const spies = install(buildView(stateWith(), { aiProvider: 'anthropic' }));
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Start with last year’s return' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'I don’t have it' }));
+    expect(spies.skipPriorYear).toHaveBeenCalled();
+  });
 });

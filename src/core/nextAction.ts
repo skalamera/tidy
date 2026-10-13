@@ -5,6 +5,7 @@ export type Intent =
   | { type: 'welcome' }
   | { type: 'open_settings' }
   | { type: 'upload' }
+  | { type: 'skip_prior_year' }
   | { type: 'open_section'; sectionId: SectionId }
   | { type: 'export' };
 
@@ -12,6 +13,8 @@ export interface NextAction {
   title: string;
   detail: string;
   cta: { label: string; intent: Intent } | null;
+  /** A quieter second choice beside the main button, for when the main one doesn't apply to everyone. */
+  secondary?: { label: string; intent: Intent };
   tone: 'go' | 'wait' | 'fix' | 'done';
 }
 
@@ -50,6 +53,7 @@ export function nextAction(i: NextActionInput): NextAction {
       title: 'Start with last year’s return',
       detail: 'Drop your 2024 tax return PDF. We’ll use it to fill in most of 2025.',
       cta: { label: 'Upload', intent: { type: 'upload' } },
+      secondary: { label: 'I don’t have it', intent: { type: 'skip_prior_year' } },
       tone: 'go',
     };
   }

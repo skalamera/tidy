@@ -379,6 +379,12 @@ a {
 .nowbar-text {
   flex: 1;
 }
+.nowbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
 .nowbar-text p:last-child {
   color: var(--muted);
 }

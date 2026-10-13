@@ -72,6 +72,9 @@ export default function App() {
         openSection('documents');
         void tidy().pickFiles();
         break;
+      case 'skip_prior_year':
+        void tidy().skipPriorYear();
+        break;
       case 'open_section':
         openSection(intent.sectionId);
         break;
