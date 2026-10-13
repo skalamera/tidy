@@ -1,4 +1,5 @@
 import { ArrowRight, FileUp, MessagesSquare, Printer } from 'lucide-react';
+import { Logo } from './Brand';
 
 const STEPS = [
   { Icon: FileUp, title: 'Drop in your documents', text: 'Last year’s return and this year’s W-2s, 1099s and statements.' },
@@ -9,9 +10,7 @@ const STEPS = [
 export function Welcome({ onStart }: { onStart: () => void }) {
   return (
     <main className="welcome">
-      <span className="logo big" aria-hidden>
-        t
-      </span>
+      <Logo size={80} />
       <h1>Your 2025 taxes, tidied up.</h1>
       <p className="lead">Tidy reads your tax documents, fills in your return, and walks you through it one small step at a time.</p>
       <ol className="welcome-steps">

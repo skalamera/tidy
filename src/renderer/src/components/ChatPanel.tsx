@@ -1,8 +1,9 @@
-import { ArrowUp, Check, MessageCircle, X } from 'lucide-react';
+import { ArrowUp, Check, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { AppView } from '../../../core/view';
 import type { Proposal, SectionId } from '../../../shared/state';
 import { tidy } from '../api';
+import { Logo } from './Brand';
 
 const STARTERS: Partial<Record<SectionId, string[]>> = {
   documents: ['What documents do I still need?', 'Can I upload a photo of a form?'],
@@ -81,7 +82,7 @@ export function ChatPanel({
   return (
     <aside className="chat" aria-label="Ask Tidy">
       <header>
-        <MessageCircle size={18} aria-hidden />
+        <Logo size={28} />
         <div>
           <strong>Ask Tidy</strong>
           <span>Sees this screen and your whole return</span>

@@ -4,6 +4,7 @@ import { AI_NAMES } from '../../../shared/ai';
 import type { SectionId } from '../../../shared/state';
 import { usd } from '../format';
 import { STATUS_LABEL } from '../labels';
+import { Logo, Wordmark } from './Brand';
 import { Icon } from './Icon';
 
 function Result({ label, refund, owed }: { label: string; refund: number; owed: number }) {
@@ -30,11 +31,9 @@ export function Sidebar({
   return (
     <nav className="sidebar" aria-label="Steps">
       <div className="brand">
-        <span className="logo" aria-hidden>
-          t
-        </span>
+        <Logo size={36} />
         <div>
-          <strong>Tidy</strong>
+          <Wordmark height={24} />
           <span className="brand-sub">2025 tax return</span>
         </div>
       </div>

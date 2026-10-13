@@ -40,8 +40,8 @@ export function ApiKeyScreen({ current, onClose }: { current: AiProvider | null;
   const where = KEYS[provider];
   return (
     <main className="welcome">
-      <span className="logo big" aria-hidden>
-        <KeyRound size={30} />
+      <span className="icon-tile" aria-hidden>
+        <KeyRound size={36} />
       </span>
       <h1>Connect Tidy to an AI</h1>
       <p className="lead">Tidy uses an AI to read your documents and answer your questions. Pick one, then paste your API key.</p>

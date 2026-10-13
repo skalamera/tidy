@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reconcileQuestions } from '../../src/core/reconcile';
@@ -100,5 +100,13 @@ describe('App', () => {
     const file = await screen.findByRole('button', { name: /Print & file/ });
     expect((file as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Federal')).toBeTruthy();
+  });
+
+  it('heads the steps with the Tidy wordmark and the tax year', async () => {
+    install(workingView());
+    render(<App />);
+    const steps = await screen.findByRole('navigation', { name: 'Steps' });
+    expect(within(steps).getByRole('img', { name: 'Tidy' })).toBeTruthy();
+    expect(within(steps).getByText('2025 tax return')).toBeTruthy();
   });
 });
