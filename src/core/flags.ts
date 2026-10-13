@@ -2,6 +2,7 @@ import { formatUsd, sumCents } from '../engine/money';
 import type { FederalResult } from '../engine/federal/form1040';
 import type { TaxFacts } from '../shared/facts';
 import type { AppState, Flag } from '../shared/state';
+import { PRIOR_TAX_YEAR } from './deriveFacts';
 
 const LABEL: Record<string, string> = {
   f1099_b: 'investment sales (1099-B)',
@@ -48,6 +49,16 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       });
     }
     if (d.status === 'done' && !d.supersededBy) {
+      const prior = d.extractions.find((e) => e.form === 'prior_year');
+      if (prior && prior.form === 'prior_year' && prior.data.taxYear !== PRIOR_TAX_YEAR) {
+        flags.push({
+          id: `wrong-year:${d.id}`,
+          sectionId: 'documents',
+          severity: 'warning',
+          title: `“${d.fileName}” is your ${prior.data.taxYear} return`,
+          detail: 'Tidy fills in 2025 from your 2024 return, so it doesn’t use this one. Upload your 2024 return, then remove this file.',
+        });
+      }
       for (const part of d.classification?.parts ?? []) {
         const label = PART_LABEL[part.form];
         if (!label) continue;

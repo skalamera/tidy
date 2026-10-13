@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildView } from '../../src/core/view';
+import { deriveFacts } from '../../src/core/deriveFacts';
 import { reconcileQuestions } from '../../src/core/reconcile';
 import { doc, priorYear, stateWith, w2Extraction } from '../fixtures/state';
 
@@ -29,5 +30,20 @@ describe('buildView', () => {
     const v = buildView(s, { aiProvider: 'gemini' });
     expect(v.flags[0].severity).toBe('blocker');
     expect(v.flags[0].title).toBe('Tidy can’t prepare partnership K-1s yet');
+  });
+
+  it('uses only a 2024 return as last year’s, and says why another year’s is set aside', () => {
+    const s = stateWith({ documents: [doc('py', [priorYear({ taxYear: 2023 })])] });
+    const v = buildView(s, { aiProvider: 'anthropic' });
+    expect(v.now.title).toBe('Start with last year’s return');
+    expect(v.flags).toContainEqual({
+      id: 'wrong-year:py',
+      sectionId: 'documents',
+      severity: 'warning',
+      title: '“py.pdf” is your 2023 return',
+      detail: 'Tidy fills in 2025 from your 2024 return, so it doesn’t use this one. Upload your 2024 return, then remove this file.',
+    });
+    // The 2023 overpayment applied to 2024 must not turn into a 2025 payment.
+    expect(deriveFacts(s).payments.federalPriorYearApplied).toBe(0);
   });
 });

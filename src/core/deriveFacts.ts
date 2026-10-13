@@ -56,11 +56,14 @@ const asMdCounty = (raw: string | null): MdCounty | null => {
   return MD_COUNTIES.find((c) => [k, k.replace(/ county$/, '')].includes(countyKey(c))) ?? null;
 };
 
+/** Tidy prepares 2025, so last year's return is the 2024 one. A return for another year is set aside (see flags). */
+export const PRIOR_TAX_YEAR = 2024;
+
 export function latestPriorYear(state: AppState): PriorYearExtractionT | null {
   for (const d of [...state.documents].reverse()) {
     if (d.status !== 'done' || d.supersededBy) continue;
     const x = d.extractions.find((e) => e.form === 'prior_year');
-    if (x && x.form === 'prior_year') return x.data;
+    if (x && x.form === 'prior_year' && x.data.taxYear === PRIOR_TAX_YEAR) return x.data;
   }
   return null;
 }
