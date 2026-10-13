@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveFacts } from '../../src/core/deriveFacts';
 import { reconcileQuestions } from '../../src/core/reconcile';
-import { sameIssuer, expectedFromPriorYear } from '../../src/core/expected';
+import { sameIssuer, expectedFromPriorYear, expectedNow } from '../../src/core/expected';
 import { applyOverrides } from '../../src/core/overrides';
 import { doc, priorYear, stateWith, w2Extraction, NOW } from '../fixtures/state';
 
@@ -64,6 +64,25 @@ describe('applyOverrides', () => {
 });
 
 describe('expected documents', () => {
+  it('expects only the payers on the 2024 return, keeps each “Not this year”, and drops them when that return goes', () => {
+    const py = doc('py', [priorYear()]);
+    const s = stateWith({
+      documents: [py],
+      expected: [
+        { key: 'w2:acme', name: 'Acme Corp', form: 'w2', dismissed: true },
+        { key: 'f1099_int:old-bank', name: 'Old Bank', form: 'f1099_int', dismissed: true }, // left by a removed return
+      ],
+    });
+    expect(expectedNow(s)).toEqual([
+      { key: 'w2:acme', name: 'Acme Corp', form: 'w2', dismissed: true },
+      { key: 'f1099_div:charles-schwab', name: 'Charles Schwab & Co., Inc.', form: 'f1099_div', dismissed: false },
+    ]);
+    expect(expectedNow({ ...s, documents: [] })).toEqual([]);
+    expect(expectedNow({ ...s, documents: [doc('py23', [priorYear({ taxYear: 2023 })])] })).toEqual([]);
+    const stillReading = { ...s, documents: [py, doc('d2', [], { status: 'reading' })] };
+    expect(expectedNow(stillReading)).toBe(stillReading.expected); // a file being read might be last year's: wait for it
+  });
+
   it('matches payer names loosely', () => {
     expect(sameIssuer('Charles Schwab & Co., Inc.', 'CHARLES SCHWAB')).toBe(true);
     expect(sameIssuer('Fidelity Investments', 'Vanguard')).toBe(false);

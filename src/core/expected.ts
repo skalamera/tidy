@@ -1,5 +1,6 @@
 import type { AppState, DocumentRecord } from '../shared/state';
 import type { DocType, PriorYearExtractionT } from '../shared/schemas/extraction';
+import { latestPriorYear } from './deriveFacts';
 
 const STOP = new Set([
   'inc',
@@ -58,6 +59,17 @@ export function expectedFromPriorYear(prior: PriorYearExtractionT): { key: strin
     if (!seen.has(key)) seen.set(key, { key, name: p.name, form: p.form });
   }
   return [...seen.values()];
+}
+
+/** The documents to expect: the payers on the 2024 return Tidy is using, each keeping its "Not this year" answer.
+ *  Rebuilt with the questions, so removing that return removes them and a return for another year adds none.
+ *  While a file is still being read it might be last year's return, so the list waits for it. */
+export function expectedNow(state: AppState): AppState['expected'] {
+  if (state.documents.some((d) => d.status === 'queued' || d.status === 'reading')) return state.expected;
+  const prior = latestPriorYear(state);
+  if (!prior) return [];
+  const notThisYear = new Set(state.expected.filter((e) => e.dismissed).map((e) => e.key));
+  return expectedFromPriorYear(prior).map((e) => ({ ...e, dismissed: notThisYear.has(e.key) }));
 }
 
 export function isReceived(item: { name: string; form: string }, docs: readonly DocumentRecord[]): boolean {

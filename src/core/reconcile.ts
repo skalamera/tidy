@@ -2,7 +2,7 @@ import { formatUsd } from '../engine/money';
 import type { AppState, DocumentRecord, Question, SectionId } from '../shared/state';
 import { amountAt, amountCents } from './amount';
 import { deriveFacts, latestPriorYear } from './deriveFacts';
-import { missingExpected } from './expected';
+import { expectedNow, missingExpected } from './expected';
 import { RULES } from './questionRules';
 
 const FORM_SECTION: Record<string, SectionId> = {
@@ -65,6 +65,13 @@ export function confirmQuestions(doc: DocumentRecord): Omit<Question, 'answer' |
 
 /** Recompute the full question list: rule questions (keeping earlier answers), confirm questions,
  *  and missing-document questions. Iterates because answers can switch other rules on/off. */
+/** Brings everything that follows from the documents and answers up to date on a draft: the documents to expect,
+ *  then the questions (some of which ask about missing expected documents). */
+export function reconcile(d: AppState): void {
+  d.expected = expectedNow(d);
+  d.questions = reconcileQuestions(d);
+}
+
 export function reconcileQuestions(state: AppState): Question[] {
   let questions = state.questions;
   for (let pass = 0; pass < 6; pass++) {

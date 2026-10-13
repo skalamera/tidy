@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { AiProvider } from '../../shared/ai';
-import type { AppState, DocumentRecord, Extraction } from '../../shared/state';
-import type { PriorYearExtractionT } from '../../shared/schemas/extraction';
-import { expectedFromPriorYear, sameIssuer } from '../../core/expected';
-import { reconcileQuestions } from '../../core/reconcile';
+import type { DocumentRecord, Extraction } from '../../shared/state';
+import { sameIssuer } from '../../core/expected';
+import { reconcile } from '../../core/reconcile';
 import type { ReturnStore } from '../store';
 import type { LlmClient, Source } from '../ai/llm';
 import { LlmError } from '../ai/llm';
@@ -82,12 +81,6 @@ export async function addFile(deps: IngestDeps, fileName: string, bytes: Buffer)
   return { id, duplicate: false };
 }
 
-function mergeExpected(d: AppState, prior: PriorYearExtractionT): void {
-  for (const e of expectedFromPriorYear(prior)) {
-    if (!d.expected.some((x) => x.key === e.key)) d.expected.push({ ...e, dismissed: false });
-  }
-}
-
 /** Classify → extract each part → verify every amount against the page text → save. Never throws. */
 export async function processDocument(deps: IngestDeps, id: string): Promise<void> {
   const setDoc = (patch: Partial<DocumentRecord>) =>
@@ -96,7 +89,7 @@ export async function processDocument(deps: IngestDeps, id: string): Promise<voi
         d.documents.find((x) => x.id === id)!,
         patch,
       );
-      d.questions = reconcileQuestions(d);
+      reconcile(d);
     });
   try {
     await setDoc({ status: 'reading', error: null });
@@ -143,9 +136,7 @@ export async function processDocument(deps: IngestDeps, id: string): Promise<voi
           }
         }
       }
-      const prior = extractions.find((e) => e.form === 'prior_year');
-      if (prior?.form === 'prior_year') mergeExpected(d, prior.data);
-      d.questions = reconcileQuestions(d);
+      reconcile(d); // also rebuilds the documents to expect, from a 2024 return only
     });
   } catch (e) {
     const message =

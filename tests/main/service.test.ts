@@ -15,7 +15,7 @@ import { ReturnStore } from '../../src/main/store';
 import { buildView, type AppView } from '../../src/core/view';
 import type { AiProvider } from '../../src/shared/ai';
 import { IPC } from '../../src/shared/ipc';
-import { w2Extraction } from '../fixtures/state';
+import { doc, priorYear, w2Extraction } from '../fixtures/state';
 
 // buildView runs for real unless a test makes it throw, the way an engine bug would.
 vi.mock('../../src/core/view', async (importOriginal) => {
@@ -174,6 +174,21 @@ describe('TidyService', () => {
       error: 'Tidy couldn’t reach Claude. Check your internet connection and try again.',
     });
     expect(saved).toEqual([]);
+  });
+
+  it('expects only what the 2024 return lists: a list left by a removed return is cleared, and removing the return clears its own', async () => {
+    const { service, store } = await setup({}, (store) =>
+      store.update((d) => {
+        d.documents.push(doc('py', [priorYear()]));
+        d.expected = [{ key: 'f1099_int:old-bank', name: 'Old Bank', form: 'f1099_int', dismissed: true }]; // from a return removed earlier
+      }),
+    );
+    expect(store.get().expected.map((e) => e.key)).toEqual(['w2:acme', 'f1099_div:charles-schwab']);
+    await service.answer('expected:w2:acme', 'not this year');
+    expect(store.get().expected.map((e) => e.dismissed)).toEqual([true, false]);
+    await service.removeDocument('py');
+    expect(store.get().expected).toEqual([]);
+    expect(store.get().questions.filter((q) => q.id.startsWith('expected:'))).toEqual([]);
   });
 
   it('reconnects to the saved AI at startup', async () => {

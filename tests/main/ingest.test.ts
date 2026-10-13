@@ -32,6 +32,16 @@ async function setup(pages: string[] | null, respond: ConstructorParameters<type
 }
 
 describe('ingest pipeline', () => {
+  it('expects nothing from a return for another year', async () => {
+    const { store, deps } = await setup(['Form 1040 2023 ... 430,000 ... 5,000'], (call) =>
+      call.system === CLASSIFY_SYSTEM ? classification('prior_year_federal_return', 'IRS') : priorYear({ taxYear: 2023 }).data,
+    );
+    const { id } = await addFile(deps, '2023 return.pdf', Buffer.from('%PDF 2023 return'));
+    await processDocument(deps, id);
+    expect(store.get().documents[0].status).toBe('done');
+    expect(store.get().expected).toEqual([]);
+  });
+
   it('says what the AI service said when it can’t read a file', async () => {
     const quota = new ApiError({
       status: 429,

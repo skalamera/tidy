@@ -5,7 +5,7 @@ import { formatUsd } from '../engine/money';
 import { amountAt } from '../core/amount';
 import { deriveFacts } from '../core/deriveFacts';
 import { applyOverrides } from '../core/overrides';
-import { reconcileQuestions } from '../core/reconcile';
+import { reconcile } from '../core/reconcile';
 import { searchChats as matchingChats } from '../core/chatSearch';
 import { buildView, problemView, type AppView, type ViewContext } from '../core/view';
 import { AI_NAMES, type AiProvider } from '../shared/ai';
@@ -86,7 +86,7 @@ export class TidyService {
     await this.moveChatBeforeHistory();
     await this.deps.store.update((d) => {
       for (const doc of d.documents) if (doc.status === 'reading') doc.status = 'queued'; // the app quit mid-read
-      d.questions = reconcileQuestions(d);
+      reconcile(d);
     });
     this.pump();
   }
@@ -225,7 +225,7 @@ export class TidyService {
     await this.deps.store.update((d) => {
       d.documents = d.documents.filter((x) => x.id !== id);
       for (const doc of d.documents) if (doc.supersededBy === id) doc.supersededBy = null;
-      d.questions = reconcileQuestions(d);
+      reconcile(d);
     });
     await this.deps.store.deleteDocument(id);
   }
@@ -284,7 +284,7 @@ export class TidyService {
         const value = q ? normalAnswer(q.kind, answer) : null; // the screen checks too; this is the trust boundary
         if (q && value !== null) Object.assign(q, { answer: value, answeredAt: this.deps.now() });
       }
-      d.questions = reconcileQuestions(d);
+      reconcile(d);
     });
   }
 
@@ -463,7 +463,7 @@ export class TidyService {
     await this.deps.store.update((d) => {
       d.overrides.push(override);
       d.proposals.find((x) => x.id === id)!.status = 'accepted';
-      d.questions = reconcileQuestions(d);
+      reconcile(d);
     });
     return { ok: true };
   }
