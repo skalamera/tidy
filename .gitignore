@@ -6,3 +6,7 @@ out
 *.log*
 # Downloaded by `npm run law:index`; only chunks.json is committed.
 resources/law/2025/sources/
+
+# Local secrets never belong in the repo.
+.env
+.env.*
