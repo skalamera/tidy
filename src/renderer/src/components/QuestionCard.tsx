@@ -65,7 +65,14 @@ function ChoiceList({ choices, onPick, busy }: { choices: NonNullable<Question['
   }
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const hits =
-    words.length === 0 ? [] : choices.filter((c) => words.every((w) => c.label.toLowerCase().includes(w))).slice(0, MAX_SEARCH_RESULTS);
+    words.length === 0
+      ? []
+      : choices
+          .filter((c) => {
+            const hay = `${c.label} ${c.keywords ?? ''}`.toLowerCase();
+            return words.every((w) => hay.includes(w));
+          })
+          .slice(0, MAX_SEARCH_RESULTS);
   return (
     <div className="choice-search">
       <input aria-label="Search" placeholder="Start typing to search…" value={query} onChange={(e) => setQuery(e.target.value)} />

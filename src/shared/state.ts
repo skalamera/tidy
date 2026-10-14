@@ -76,7 +76,7 @@ export interface Question {
   kind: QuestionKind;
   prompt: string;
   help: string | null;
-  choices: { value: string; label: string }[] | null;
+  choices: { value: string; label: string; keywords?: string }[] | null;
   /** For confirm_amount: the amount we read, in cents. */
   suggested: Cents | null;
   blocking: boolean;

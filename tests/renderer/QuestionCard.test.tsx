@@ -48,18 +48,24 @@ describe('QuestionCard', () => {
     expect(onAnswer).toHaveBeenCalledWith('no');
   });
 
-  it('turns long choice lists into a search', async () => {
-    const choices = ['Albany', 'Bronx', 'Brooklyn', 'Buffalo', 'Manhattan', 'Queens', 'Rochester', 'Staten Island'].map((name, i) => ({
-      value: String(i),
-      label: name,
-    }));
+  it('turns long choice lists into a search, including unincorporated place keywords', async () => {
+    const choices = [
+      { value: '0', label: 'Albany' },
+      { value: '1', label: 'Bronx' },
+      { value: '2', label: 'Brooklyn' },
+      { value: '3', label: 'Buffalo' },
+      { value: '0500', label: 'Calvert County (not in a town)', keywords: 'Huntingtown Prince Frederick Solomons Lusby' },
+      { value: '4', label: 'Manhattan' },
+      { value: '5', label: 'Queens' },
+      { value: '6', label: 'Rochester' },
+    ];
     const onAnswer = vi.fn(async () => {});
     render(<QuestionCard question={question({ kind: 'choice', choices })} onAnswer={onAnswer} />);
     expect(screen.queryByRole('button', { name: 'Brooklyn' })).toBeNull();
-    await userEvent.type(screen.getByLabelText('Search'), 'bro');
-    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Bronx', 'Brooklyn']);
-    await userEvent.click(screen.getByRole('button', { name: 'Brooklyn' }));
-    expect(onAnswer).toHaveBeenCalledWith('2');
+    await userEvent.type(screen.getByLabelText('Search'), 'Huntingtown');
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Calvert County (not in a town)']);
+    await userEvent.click(screen.getByRole('button', { name: 'Calvert County (not in a town)' }));
+    expect(onAnswer).toHaveBeenCalledWith('0500');
   });
 
   it('confirms an amount we read, or lets the user fix it', async () => {

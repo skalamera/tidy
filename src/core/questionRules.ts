@@ -6,6 +6,7 @@ import type { FilingStatus, Person, TaxFacts } from '../shared/facts';
 import type { AppState, Question, SectionId } from '../shared/state';
 import { amountCents } from './amount';
 import MD_SUBDIVISIONS from '../shared/data/md-subdivisions-2025.json';
+import { MD_UNINCORPORATED_PLACES } from '../shared/data/md-unincorporated';
 
 export interface RuleContext {
   state: AppState;
@@ -309,10 +310,13 @@ export const RULES: Rule[] = [
     build: () => ({
       kind: 'choice',
       prompt: 'Where did you live in Maryland on December 31, 2025?',
-      help: 'Pick your city or town if you lived inside its limits; otherwise pick your county. This sets your local tax rate.',
+      help: 'Pick your city or town if you lived inside its limits; otherwise pick your county (for example Huntingtown is in Calvert County, not an incorporated town). This sets your local tax rate.',
       choices: MD_SUBDIVISIONS.map((d) => ({
         value: d.code,
         label: d.code.endsWith('00') ? `${countyLabel(d.county)} (not in a town)` : `${d.name} · ${countyLabel(d.county)}`,
+        ...(d.code.endsWith('00') && MD_UNINCORPORATED_PLACES[d.county as MdCounty]
+          ? { keywords: MD_UNINCORPORATED_PLACES[d.county as MdCounty].join(' ') }
+          : {}),
       })),
       suggested: null,
       blocking: true,

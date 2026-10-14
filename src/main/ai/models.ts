@@ -22,6 +22,6 @@ export const MODELS: Record<AiProvider, Record<ModelRole, ModelSpec>> = {
     classify: { model: 'gemini-3.8-flash', effort: 'low', maxTokens: 8_000 },
     extract: { model: 'gemini-3.8-flash', effort: 'medium', maxTokens: 32_000 },
     extract_hard: { model: 'gemini-4-argon', effort: 'medium', maxTokens: 65_536 },
-    chat: { model: 'gemini-4-argon', effort: 'medium', maxTokens: 16_000 },
+    chat: { model: 'gemini-3.8-flash', effort: 'low', maxTokens: 16_000 },
   },
 };

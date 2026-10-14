@@ -67,7 +67,7 @@ describe('GeminiChatModel', () => {
       { role: 'user', parts: [{ text: '<app_context>x</app_context>' }, { text: 'hi' }] },
     ]);
     expect(requests[0].config).toMatchObject({
-      thinkingConfig: { thinkingLevel: 'MEDIUM' },
+      thinkingConfig: { thinkingLevel: 'LOW' },
       systemInstruction: expect.stringContaining('You are Tidy'),
     });
     const tools = requests[0].config?.tools as { functionDeclarations: { name: string }[] }[];
