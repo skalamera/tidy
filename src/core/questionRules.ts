@@ -345,8 +345,8 @@ export const RULES: Rule[] = [
     applies: () => true,
     build: () =>
       yesNo(
-        'Besides wages, self-employment / consulting, interest, dividends, stock or fund sales, pensions, IRAs, and Social Security, did you have any other income in 2025?',
-        'For example a rental property, partnership or S corporation, or trust.',
+        'Besides wages, self-employment / consulting, rentals, partnerships / S corporations / trusts (Schedule K-1), interest, dividends, stock or fund sales, pensions, IRAs, and Social Security, did you have any other income in 2025?',
+        'For example farm income (Schedule F), alimony received under a pre-2019 agreement, or gambling winnings.',
       ),
     apply: () => {},
   },
@@ -491,6 +491,48 @@ export const RULES: Rule[] = [
       ),
     apply: (a, f) => {
       if (f.scheduleC?.[0] && cents(a) > 0) f.scheduleC[0].healthInsurancePremiums = cents(a);
+    },
+  },
+  {
+    id: 'k1-material-participation',
+    sectionId: 'wages',
+    applies: (c) =>
+      (c.facts.k1s ?? []).some((k) => (k.entityType === '1065' || k.entityType === '1120S') && k.ordinaryBusinessIncome !== 0),
+    build: (c) => {
+      const names = (c.facts.k1s ?? [])
+        .filter((k) => (k.entityType === '1065' || k.entityType === '1120S') && k.ordinaryBusinessIncome !== 0)
+        .map((k) => k.entityName)
+        .join(', ');
+      return yesNo(
+        `Did you materially participate in the operations of ${names} during 2025 (for example, working more than 500 hours in the business)?`,
+        'Material participation makes the trade or business nonpassive on Schedule E Part II; otherwise it is a passive activity subject to Form 8582.',
+      );
+    },
+    apply: (a, f) => {
+      for (const k of f.k1s ?? []) {
+        if (k.entityType === '1065' || k.entityType === '1120S') {
+          k.isMaterialParticipation = a === 'yes';
+        }
+      }
+    },
+  },
+  {
+    id: 'k1-scorp-beginning-stock-basis',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.k1s ?? []).some((k) => k.entityType === '1120S' && Boolean(k.sCorpBasis)),
+    build: (c) => {
+      const scorp = (c.facts.k1s ?? []).find((k) => k.entityType === '1120S' && Boolean(k.sCorpBasis));
+      return money(
+        `What was your stock basis in ${scorp?.entityName ?? 'the S corporation'} at the beginning of 2025 (Form 7203, line 1)?`,
+        'Required on Form 7203 when an S corporation reports a loss or makes a distribution.',
+      );
+    },
+    apply: (a, f) => {
+      for (const k of f.k1s ?? []) {
+        if (k.entityType === '1120S' && k.sCorpBasis) {
+          k.sCorpBasis.beginningStockBasis = Math.max(0, cents(a));
+        }
+      }
     },
   },
   {

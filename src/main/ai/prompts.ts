@@ -36,6 +36,7 @@ export const FORM_PROMPTS: Record<ExtractForm, string> = {
     'This is Form 1099-NEC (Nonemployee Compensation). Extract box 1 (nonemployee compensation), box 4 (federal income tax withheld), and every state row (boxes 5–7). If the file repeats Copy B and Copy 2 of the same 1099-NEC, read only one copy.',
   ssa_1099:
     'This is Form SSA-1099 (Social Security Benefit Statement). Extract box 3 (benefits paid in 2025), box 4 (benefits repaid to SSA in 2025), box 5 (net benefits for 2025), and box 6 (voluntary federal income tax withheld).',
+  k1: 'This is Schedule K-1 (Form 1065 Partnership, Form 1120-S S Corporation, or Form 1041 Estate/Trust). Extract the entityType ("1065", "1120S", or "1041"), entityName, entityEin, recipientName, and the Part III income, loss, deduction, distribution, self-employment, and Section 199A QBI boxes.',
   f1098:
     'This is Form 1098 (Mortgage Interest Statement). Box 1 is mortgage interest received from the borrower. Real estate tax paid from escrow may be in box 10 or in an escrow summary.',
   payment:

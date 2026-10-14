@@ -193,6 +193,45 @@ export const F1099NecExtraction = z.object({
 });
 export type F1099NecExtractionT = z.infer<typeof F1099NecExtraction>;
 
+export const K1Extraction = z.object({
+  entityType: z
+    .enum(['1065', '1120S', '1041'])
+    .describe('Schedule K-1 form type: 1065 (Partnership), 1120S (S Corporation), or 1041 (Estate/Trust).'),
+  entityName: z.string().describe('Part I: Name of partnership, S corporation, estate, or trust.'),
+  entityEin: z.string().nullable().describe('Part I: Employer identification number (EIN) of the entity.'),
+  recipientName: z.string().describe('Part II: Partner, shareholder, or beneficiary name.'),
+  recipientSsnLast4: z.string().nullable(),
+  ordinaryBusinessIncome: Amount.describe(
+    'Part III Box 1 (1065/1120-S) or Box 6 (1041): Ordinary business income (loss). Can be negative.',
+  ),
+  netRentalRealEstateIncome: Amount.describe(
+    'Part III Box 2 (1065/1120-S) or Box 7 (1041): Net rental real estate income (loss). Can be negative.',
+  ),
+  otherNetRentalIncome: Amount.describe('Part III Box 3 (1065/1120-S) or Box 8 (1041): Other net rental income (loss). Can be negative.'),
+  guaranteedPayments: Amount.describe('Form 1065 Box 4c: Total guaranteed payments (0 for 1120-S / 1041).'),
+  interestIncome: Amount.describe('Box 5 (1065) / Box 4 (1120-S) / Box 1 (1041): Interest income.'),
+  ordinaryDividends: Amount.describe('Box 6a (1065) / Box 5a (1120-S) / Box 2a (1041): Ordinary dividends.'),
+  qualifiedDividends: Amount.describe('Box 6b (1065) / Box 5b (1120-S) / Box 2b (1041): Qualified dividends.'),
+  royalties: Amount.describe('Box 7 (1065) / Box 6 (1120-S): Royalties.'),
+  netShortTermCapitalGain: Amount.describe(
+    'Box 8 (1065) / Box 7 (1120-S) / Box 3 (1041): Net short-term capital gain (loss). Can be negative.',
+  ),
+  netLongTermCapitalGain: Amount.describe(
+    'Box 9a (1065) / Box 8a (1120-S) / Box 4a (1041): Net long-term capital gain (loss). Can be negative.',
+  ),
+  collectibles28Gain: Amount.describe('Box 9b (1065) / Box 8b (1120-S) / Box 4b (1041): Collectibles (28%) gain (loss).'),
+  unrecaptured1250Gain: Amount.describe('Box 9c (1065) / Box 8c (1120-S) / Box 4c (1041): Unrecaptured section 1250 gain.'),
+  netSection1231Gain: Amount.describe('Box 10 (1065) / Box 9 (1120-S): Net section 1231 gain (loss). Can be negative.'),
+  section179Deduction: Amount.describe('Box 12 (1065) / Box 11 (1120-S): Section 179 deduction.'),
+  selfEmploymentEarnings: Amount.describe('Form 1065 Box 14 code A: Net earnings (loss) from self-employment.'),
+  distributions: Amount.describe('Form 1120-S Box 16 code D or Form 1065 Box 19 code A: Cash and marketable securities distributions.'),
+  nondeductibleExpenses: Amount.describe('Form 1120-S Box 16 code C or Form 1065 Box 18 code C: Nondeductible expenses.'),
+  qbiAmount: Amount.describe('Section 199A QBI (1065 Box 20 code Z / 1120-S Box 17 code V / 1041 Box 14 code I). Can be negative.'),
+  qbiW2Wages: Amount.describe('Section 199A W-2 wages from the pass-through entity.'),
+  qbiUbia: Amount.describe('Section 199A UBIA of qualified property from the pass-through entity.'),
+});
+export type K1ExtractionT = z.infer<typeof K1Extraction>;
+
 export const PaymentExtraction = z.object({
   kind: z.enum(['property_tax', 'charity_cash', 'charity_noncash', 'federal_estimate', 'state_estimate', 'other']),
   payee: z.string(),

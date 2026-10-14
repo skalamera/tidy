@@ -6,6 +6,7 @@ import {
   F1099IntExtraction,
   F1099NecExtraction,
   F1099RExtraction,
+  K1Extraction,
   PaymentExtraction,
   PriorYearExtraction,
   Ssa1099Extraction,
@@ -25,6 +26,7 @@ const SCHEMAS = {
   f1099_r: F1099RExtraction,
   f1099_nec: F1099NecExtraction,
   ssa_1099: Ssa1099Extraction,
+  k1: K1Extraction,
   f1098: F1098Extraction,
   payment: PaymentExtraction,
   prior_year: PriorYearExtraction,
@@ -65,6 +67,7 @@ const PART_FORM: Partial<Record<PartForm, ExtractForm>> = {
   f1099_r: 'f1099_r',
   f1099_nec: 'f1099_nec',
   ssa_1099: 'ssa_1099',
+  k1: 'k1',
   f1098: 'f1098',
 };
 
@@ -75,6 +78,12 @@ export function extractionPlan(c: ClassificationT): PlanStep[] {
   switch (c.docType) {
     case 'prior_year_federal_return':
       return [{ form: 'prior_year', pages: null }];
+    case 'k1_1065':
+    case 'k1_1120s':
+    case 'k1_1041': {
+      const steps = fromParts().filter((s) => s.form === 'k1');
+      return steps.length > 1 ? steps : [{ form: 'k1', pages: null }];
+    }
     case 'w2':
     case 'f1099_int':
     case 'f1099_div':

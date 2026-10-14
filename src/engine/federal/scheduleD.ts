@@ -129,6 +129,7 @@ export function computeScheduleD(
   p: FedParams,
   l: Ledger,
   form4797Line11: Cents = 0,
+  sCorpExcessDistributionGain: Cents = 0,
 ): ScheduleDResult {
   const allLots = (f.f1099B ?? []).flatMap((b) => b.lots);
   const accruedMarketDiscountInterest = sumCents(allLots.map((lot) => roundToDollar(lot.marketDiscount)));
@@ -178,7 +179,8 @@ export function computeScheduleD(
   const L2 = setRowTotals('schD.2', 'Short-term from Form 8949 Box B', byBox.B);
   const L3 = setRowTotals('schD.3', 'Short-term from Form 8949 Box C', byBox.C);
   const L4 = l.set('schD.4', 0, 'Short-term gain from Form 6252 / 4684 / 6781 / 8824');
-  const L5 = l.set('schD.5', 0, 'Net short-term gain or (loss) from Schedules K-1');
+  const k1ShortTerm = sumCents((f.k1s ?? []).map((k) => roundToDollar(k.netShortTermCapitalGain)));
+  const L5 = l.set('schD.5', k1ShortTerm, 'Net short-term gain or (loss) from Schedules K-1');
   const stCarryover = Math.max(0, roundToDollar(f.carryovers?.capitalLossShortTerm ?? 0));
   const L6 = l.set('schD.6', stCarryover, 'Short-term capital loss carryover from 2024');
   const L7 = l.set('schD.7', L1a + L1b + L2 + L3 + L4 + L5 - L6, 'Net short-term capital gain or (loss)', 'Lines 1a through 5 − line 6');
@@ -189,7 +191,8 @@ export function computeScheduleD(
   const L9 = setRowTotals('schD.9', 'Long-term from Form 8949 Box E', byBox.E);
   const L10 = setRowTotals('schD.10', 'Long-term from Form 8949 Box F', byBox.F);
   const L11 = l.set('schD.11', form4797Line11, 'Gain from Form 4797, Part I; long-term gain from Forms 2439 and 6252');
-  const L12 = l.set('schD.12', 0, 'Net long-term gain or (loss) from Schedules K-1');
+  const k1LongTerm = sumCents((f.k1s ?? []).map((k) => roundToDollar(k.netLongTermCapitalGain))) + sCorpExcessDistributionGain;
+  const L12 = l.set('schD.12', k1LongTerm, 'Net long-term gain or (loss) from Schedules K-1');
   const capGainDists = sumCents(f.f1099Div.map((d) => roundToDollar(d.box2aCapitalGainDistributions)));
   const L13 = l.set('schD.13', capGainDists, 'Capital gain distributions (Form 1099-DIV, box 2a)');
   const ltCarryover = Math.max(0, roundToDollar(f.carryovers?.capitalLossLongTerm ?? 0));
@@ -204,8 +207,12 @@ export function computeScheduleD(
   // Part III — Summary
   const L16 = l.set('schD.16', L7 + L15, 'Combined net short-term and long-term capital gain or (loss)', 'Line 7 + line 15');
 
-  const unrecaptured1250Div = sumCents(f.f1099Div.map((d) => roundToDollar(d.box2bUnrecaptured1250Gain)));
-  const rate28Div = sumCents(f.f1099Div.map((d) => roundToDollar(d.box2d28RateGain)));
+  const unrecaptured1250Div =
+    sumCents(f.f1099Div.map((d) => roundToDollar(d.box2bUnrecaptured1250Gain))) +
+    sumCents((f.k1s ?? []).map((k) => roundToDollar(k.unrecaptured1250Gain ?? 0)));
+  const rate28Div =
+    sumCents(f.f1099Div.map((d) => roundToDollar(d.box2d28RateGain))) +
+    sumCents((f.k1s ?? []).map((k) => roundToDollar(k.collectibles28Gain ?? 0)));
   const collectiblesLots = sumCents(
     allLots.filter((lot) => lot.collectibles && ['D', 'E', 'F'].includes(lot.box)).map((lot) => normalizeLot(lot).row.gainOrLoss),
   );
@@ -243,7 +250,14 @@ export function computeScheduleD(
   // If the ONLY capital gain/loss items are 1099-DIV box 2a capital gain distributions AND boxes 2b/2d are 0,
   // the taxpayer can check box 7b on Form 1040 and omit Schedule D.
   const hasOnlySimpleCapGainDists =
-    allLots.length === 0 && form4797Line11 === 0 && stCarryover === 0 && ltCarryover === 0 && unrecaptured1250Div === 0 && rate28Div === 0;
+    allLots.length === 0 &&
+    form4797Line11 === 0 &&
+    k1ShortTerm === 0 &&
+    k1LongTerm === 0 &&
+    stCarryover === 0 &&
+    ltCarryover === 0 &&
+    unrecaptured1250Div === 0 &&
+    rate28Div === 0;
   const needsScheduleD = !hasOnlySimpleCapGainDists;
   const line7bCheck = hasOnlySimpleCapGainDists && capGainDists > 0;
   const needsForm8949 = form8949Sheets.length > 0;

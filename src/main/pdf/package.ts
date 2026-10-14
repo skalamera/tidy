@@ -20,13 +20,17 @@ const FORM_TITLE: Record<FederalFormId, string> = {
   schC: 'Schedule C',
   schD: 'Schedule D',
   f8949: 'Form 8949',
+  schE: 'Schedule E',
   schSE: 'Schedule SE',
   f4797: 'Form 4797',
   f8995: 'Form 8995',
   f8995a: 'Form 8995-A',
   f8959: 'Form 8959',
   f8960: 'Form 8960',
+  f8582: 'Form 8582',
   f8829: 'Form 8829',
+  f4562: 'Form 4562',
+  f7203: 'Form 7203',
   f7206: 'Form 7206',
 };
 
@@ -173,6 +177,11 @@ export async function buildPackage(state: AppState, readResource: (rel: string) 
     }
     const { values, statements: extra } = federalValues(id, f, r);
     statements.push(...extra);
+    if (id === 'schE') {
+      const pages = r.scheduleE.needsScheduleEPage2 ? [0, 1] : [0];
+      await append({ ...FEDERAL_MAPS.schE, pages }, values);
+      continue;
+    }
     await append(FEDERAL_MAPS[id], values);
   }
   for (const st of statements) await statementPage(out, f, st);

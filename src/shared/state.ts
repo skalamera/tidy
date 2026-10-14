@@ -8,6 +8,7 @@ import type {
   F1099IntExtractionT,
   F1099NecExtractionT,
   F1099RExtractionT,
+  K1ExtractionT,
   PaymentExtractionT,
   PriorYearExtractionT,
   Ssa1099ExtractionT,
@@ -47,6 +48,7 @@ export type Extraction = { firstPage: number } & (
   | { form: 'f1099_r'; data: F1099RExtractionT }
   | { form: 'f1099_nec'; data: F1099NecExtractionT }
   | { form: 'ssa_1099'; data: Ssa1099ExtractionT }
+  | { form: 'k1'; data: K1ExtractionT }
   | { form: 'f1098'; data: F1098ExtractionT }
   | { form: 'payment'; data: PaymentExtractionT }
 );

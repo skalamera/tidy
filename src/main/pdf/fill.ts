@@ -240,6 +240,16 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     }
   }
 
+  if (id === 'schE' || id === 'f8582' || id === 'f4562' || id === 'f7203') {
+    for (const [k, val] of Object.entries(r.scheduleE.printed)) {
+      if (typeof val === 'boolean') {
+        if (val && k in map.checks) checks.push(k);
+      } else if (val && k in map.text) {
+        text[k] = val;
+      }
+    }
+  }
+
   if (id === 'schB') {
     const interest = fitRows(r.payers.interest, SCHB_INTEREST_ROWS, 'Schedule B, Part I, line 1 (interest)');
     const dividends = fitRows(r.payers.dividends, SCHB_DIVIDEND_ROWS, 'Schedule B, Part II, line 5 (ordinary dividends)');

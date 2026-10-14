@@ -24,6 +24,9 @@ export function emptyFacts(): TaxFacts {
     f1099Nec: [],
     ssa1099: [],
     scheduleC: [],
+    rentals: [],
+    k1s: [],
+    mdDecoupling: null,
     carryovers: {
       capitalLossShortTerm: 0,
       capitalLossLongTerm: 0,
@@ -314,6 +317,52 @@ export function deriveFacts(state: AppState): TaxFacts {
             evidence: {
               box5NetBenefits: ev('box5NetBenefits', d.box5NetBenefits),
               box6FedWithheld: ev('box6FedWithheld', d.box6FedWithheld),
+            },
+          });
+          break;
+        }
+        case 'k1': {
+          const d = x.data;
+          const dists = amountCents(d.distributions);
+          const nonded = amountCents(d.nondeductibleExpenses);
+          f.k1s!.push({
+            id,
+            owner: guessOwner(f, d.recipientName, d.recipientSsnLast4),
+            entityType: d.entityType,
+            entityName: d.entityName,
+            entityEin: d.entityEin ?? '',
+            isMaterialParticipation: false,
+            ordinaryBusinessIncome: amountCents(d.ordinaryBusinessIncome),
+            netRentalRealEstateIncome: amountCents(d.netRentalRealEstateIncome),
+            otherNetRentalIncome: amountCents(d.otherNetRentalIncome),
+            guaranteedPayments: amountCents(d.guaranteedPayments),
+            interestIncome: amountCents(d.interestIncome),
+            ordinaryDividends: amountCents(d.ordinaryDividends),
+            qualifiedDividends: amountCents(d.qualifiedDividends),
+            royalties: amountCents(d.royalties),
+            netShortTermCapitalGain: amountCents(d.netShortTermCapitalGain),
+            netLongTermCapitalGain: amountCents(d.netLongTermCapitalGain),
+            collectibles28Gain: amountCents(d.collectibles28Gain),
+            unrecaptured1250Gain: amountCents(d.unrecaptured1250Gain),
+            netSection1231Gain: amountCents(d.netSection1231Gain),
+            section179Deduction: amountCents(d.section179Deduction),
+            selfEmploymentEarnings: amountCents(d.selfEmploymentEarnings),
+            qbiAmount: amountCents(d.qbiAmount),
+            qbiW2Wages: amountCents(d.qbiW2Wages),
+            qbiUbia: amountCents(d.qbiUbia),
+            ...(d.entityType === '1120S' &&
+            (dists > 0 || nonded > 0 || amountCents(d.ordinaryBusinessIncome) < 0 || amountCents(d.netRentalRealEstateIncome) < 0)
+              ? {
+                  sCorpBasis: {
+                    beginningStockBasis: 0,
+                    distributions: dists,
+                    nondeductibleExpenses: nonded,
+                  },
+                }
+              : {}),
+            evidence: {
+              ordinaryBusinessIncome: ev('ordinaryBusinessIncome', d.ordinaryBusinessIncome),
+              netRentalRealEstateIncome: ev('netRentalRealEstateIncome', d.netRentalRealEstateIncome),
             },
           });
           break;

@@ -79,6 +79,9 @@ const KIND: Record<string, string> = {
   f1099_r: '1099-R',
   f1099_nec: '1099-NEC',
   ssa_1099: 'SSA-1099',
+  k1_1065: 'Schedule K-1 (1065)',
+  k1_1120s: 'Schedule K-1 (1120-S)',
+  k1_1041: 'Schedule K-1 (1041)',
   f1099_composite: 'Brokerage 1099',
   f1098: 'Mortgage interest (1098)',
   property_tax_bill: 'Property tax',
@@ -108,19 +111,24 @@ const FORM_NAME_BY_ID: Record<string, string> = {
   schC: 'Schedule C',
   schD: 'Schedule D',
   f8949: 'Form 8949',
+  schE: 'Schedule E',
   schSE: 'Schedule SE',
   f4797: 'Form 4797',
   f8995: 'Form 8995',
   f8995a: 'Form 8995-A',
   f8959: 'Form 8959',
   f8960: 'Form 8960',
+  f8582: 'Form 8582',
   f8829: 'Form 8829',
+  f4562: 'Form 4562',
+  f7203: 'Form 7203',
   f7206: 'Form 7206',
   md502: 'Maryland Form 502',
   md502r: 'Maryland Form 502R',
   md502su: 'Maryland Form 502SU',
   md502cr: 'Maryland Form 502CR',
   md502cg: 'Maryland Form 502CG',
+  md500dm: 'Maryland Form 500DM',
 };
 
 const money = (label: string, cents: Cents, extra: Partial<Row> = {}): Row => ({
@@ -157,8 +165,10 @@ function stateCards(s: StateResult | null): Card[] {
       subtitle: null,
       rows: [
         fromLedger(l, 'md502.1', 'Federal adjusted gross income'),
+        ...(l.get('md502.5') > 0 ? [fromLedger(l, 'md502.5', 'Decoupling addition modification (Form 500DM)')] : []),
         ...(l.get('md502.10a') > 0 ? [fromLedger(l, 'md502.10a', 'Pension exclusion (Worksheet 13A)')] : []),
         ...(l.get('md502.11') > 0 ? [fromLedger(l, 'md502.11', 'Social Security subtraction')] : []),
+        ...(l.get('md502su.bb') > 0 ? [fromLedger(l, 'md502su.bb', 'Decoupling subtraction modification (Form 500DM)')] : []),
         fromLedger(l, 'md502.16', 'Maryland adjusted gross income'),
         fromLedger(l, 'md502.17', s.md.itemizing ? 'Itemized deductions' : 'Standard deduction'),
         fromLedger(l, 'md502.19', 'Exemptions'),
@@ -321,6 +331,26 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
           },
         ]
       : []),
+    ...(r.scheduleE.needsScheduleE
+      ? [
+          {
+            id: 'sch-e',
+            title: 'Rentals & Pass-Throughs (Schedule E)',
+            subtitle: 'Schedule E · Supplemental Income and Loss',
+            rows: [
+              ...((f.rentals ?? []).length > 0 ? [line(r, 'schE.26', 'Net rental real estate and royalty income or (loss)')] : []),
+              ...((f.k1s ?? []).some((k) => k.entityType === '1065' || k.entityType === '1120S')
+                ? [line(r, 'schE.32', 'Net partnership and S corporation income or (loss)')]
+                : []),
+              ...((f.k1s ?? []).some((k) => k.entityType === '1041') ? [line(r, 'schE.37', 'Net estate and trust income or (loss)')] : []),
+              line(r, 'sch1.5', 'Total Schedule E income or (loss) (Schedule 1, line 5)'),
+              ...(r.scheduleE.passiveLossCarryoverTo2026 > 0
+                ? [money('Unallowed passive loss carryover to 2026 (Form 8582)', r.scheduleE.passiveLossCarryoverTo2026)]
+                : []),
+            ],
+          },
+        ]
+      : []),
     {
       id: 'wage-totals',
       title: 'Totals',
@@ -328,6 +358,7 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
       rows: [
         line(r, 'f1040.1z', 'Total wages'),
         ...(r.business.needsScheduleC ? [line(r, 'sch1.3', 'Net business profit or (loss) (Schedule C)')] : []),
+        ...(r.scheduleE.needsScheduleE ? [line(r, 'sch1.5', 'Net rental & K-1 income or (loss) (Schedule E)')] : []),
         ...(r.ledger.get('f1040.4a') > 0 ? [line(r, 'f1040.4b', 'Taxable IRA distributions')] : []),
         ...(r.ledger.get('f1040.5a') > 0 ? [line(r, 'f1040.5b', 'Taxable pensions and annuities')] : []),
         ...(r.ledger.get('f1040.6a') > 0 ? [line(r, 'f1040.6b', 'Taxable Social Security benefits')] : []),

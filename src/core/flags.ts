@@ -5,9 +5,6 @@ import type { AppState, Flag } from '../shared/state';
 import { PRIOR_TAX_YEAR } from './deriveFacts';
 
 const LABEL: Record<string, string> = {
-  k1_1065: 'partnership K-1s',
-  k1_1120s: 'S corporation K-1s',
-  k1_1041: 'trust K-1s',
   f1099_misc: '1099-MISC income',
   prior_year_state_return: 'a state return on its own',
   brokerage_statement: 'brokerage statements',
@@ -16,7 +13,6 @@ const LABEL: Record<string, string> = {
 const PART_LABEL: Record<string, string> = {
   f1099_misc: 'a 1099-MISC',
   f1099_oid: 'a 1099-OID',
-  k1: 'a Schedule K-1',
   other: 'a form Tidy doesn’t read yet',
 };
 
@@ -82,7 +78,7 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       sectionId: 'profile',
       severity: 'blocker',
       title: 'Some of your income needs forms Tidy can’t prepare yet',
-      detail: 'Rental and pass-through income (Schedule E and K-1s) are on the roadmap. Until then this return would leave them out.',
+      detail: 'Farm income (Schedule F) and specialized income types aren’t supported yet. Until then this return would leave them out.',
     });
   }
   if (f.hasNondeductibleIraBasis === true) {

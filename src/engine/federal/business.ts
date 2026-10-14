@@ -100,13 +100,30 @@ function ltcLimitForAge(age: number, p: FedParams): Cents {
   return lim.age71OrOlder;
 }
 
-/** Compute Form 4797 (Sales of Business Property) for assets sold, scrapped/abandoned, or converted to personal use. */
-export function computeForm4797(dispositions: BusinessAssetDisposition[], prior1231Losses: Cents, l: Ledger): Form4797Result {
+/** Compute Form 4797 (Sales of Business Property) for assets sold, scrapped/abandoned, or converted to personal use, plus K-1 §1231 gains/losses. */
+export function computeForm4797(
+  dispositions: BusinessAssetDisposition[],
+  prior1231Losses: Cents,
+  l: Ledger,
+  k1Net1231Gain: Cents = 0,
+): Form4797Result {
   const part1Rows: Form4797Row[] = [];
   const part2Rows: Form4797Row[] = [];
   const part3Cols: Form4797Part3Col[] = [];
   let sec179PriorTotal = 0;
   let sec179RecompTotal = 0;
+
+  if (k1Net1231Gain !== 0) {
+    part1Rows.push({
+      description: 'From Schedule(s) K-1',
+      dateAcquired: '',
+      dateSold: '',
+      salesPrice: 0,
+      depreciation: 0,
+      costBasis: 0,
+      gainOrLoss: roundToDollar(k1Net1231Gain),
+    });
+  }
 
   for (const d of dispositions) {
     const salesPrice = roundToDollar(d.salesPrice);
@@ -279,6 +296,13 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
 
   const activeBiz = (f.scheduleC ?? []).find((b) => !b.closedInPriorYear) ?? null;
   const necs = f.f1099Nec ?? [];
+  const k1Net1231 = sumCents((f.k1s ?? []).map((k) => roundToDollar(k.netSection1231Gain)));
+  const k1SeTaxpayer = sumCents(
+    (f.k1s ?? []).filter((k) => k.owner === 'taxpayer').map((k) => roundToDollar(k.selfEmploymentEarnings ?? 0)),
+  );
+  const k1SeSpouse = sumCents((f.k1s ?? []).filter((k) => k.owner === 'spouse').map((k) => roundToDollar(k.selfEmploymentEarnings ?? 0)));
+  const k1SeTotal = k1SeTaxpayer + k1SeSpouse;
+  const k1SeOwner: Owner = k1SeSpouse !== 0 && k1SeTaxpayer === 0 ? 'spouse' : 'taxpayer';
 
   // If no active Schedule C object was provided but 1099-NECs were uploaded, synthesize a default consulting Schedule C for the 1099-NEC owner.
   const biz: ScheduleCBusiness | null =
@@ -296,7 +320,7 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
         }
       : null);
 
-  if (!biz) {
+  if (!biz && k1Net1231 === 0 && k1SeTotal === 0) {
     return {
       activeBusiness: null,
       needsScheduleC: false,
@@ -321,7 +345,65 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
   }
 
   // 1. Form 4797 dispositions (computed first because Part IV §179 recapture flows into Schedule C line 6)
-  const form4797 = computeForm4797(biz.assetDispositions ?? [], biz.priorSection1231Losses ?? 0, l);
+  const form4797 = computeForm4797(biz?.assetDispositions ?? [], biz?.priorSection1231Losses ?? 0, l, k1Net1231);
+
+  if (!biz) {
+    // Only K-1 §1231 and/or K-1 self-employment earnings exist (no Schedule C)
+    const seRawK1 = k1SeTotal > 0 ? rateToDollar(k1SeTotal, p.selfEmployment.netEarningsFactor) : k1SeTotal;
+    const needsScheduleSE = seRawK1 >= p.selfEmployment.minNetEarnings;
+    let seNetEarnings = 0;
+    let seTax = 0;
+    let deductibleSeTax = 0;
+    if (needsScheduleSE) {
+      l.set('schSE.2', k1SeTotal, 'Net profit or (loss) from Schedule(s) K-1');
+      l.set('schSE.3', k1SeTotal, 'Combined net earnings');
+      const SE4a = l.set('schSE.4a', seRawK1, '92.35% of line 3');
+      const SE4c = l.set('schSE.4c', SE4a, 'Combined net earnings from self-employment');
+      const SE6 = l.set('schSE.6', SE4c, 'Net earnings from self-employment');
+      seNetEarnings = SE6;
+      const ownerSsWages = sumCents(f.w2s.filter((w) => w.owner === k1SeOwner).map((w) => roundToDollar(w.box3SsWages)));
+      const SE8a = l.set('schSE.8a', ownerSsWages, 'Total social security wages and tips from Form(s) W-2');
+      const SE8d = l.set('schSE.8d', SE8a, 'Total social security wages');
+      const SE9 = l.set('schSE.9', Math.max(0, p.socialSecurity.wageBase - SE8d), 'Remaining social security wage base');
+      const SE10 = l.set(
+        'schSE.10',
+        SE9 > 0 ? rateToDollar(Math.min(SE6, SE9), p.selfEmployment.ssRate) : 0,
+        'Social security portion (12.4%)',
+      );
+      const SE11 = l.set('schSE.11', rateToDollar(SE6, p.selfEmployment.medicareRate), 'Medicare portion (2.9%)');
+      seTax = l.set('schSE.12', SE10 + SE11, 'Self-employment tax');
+      deductibleSeTax = l.set(
+        'schSE.13',
+        rateToDollar(seTax, p.selfEmployment.deductibleHalfRate),
+        'Deduction for one-half of self-employment tax',
+      );
+    }
+    const S1_4 = l.set('sch1.4', form4797.schedule1Line4, 'Other gains or (losses) (Form 4797)');
+    const S1_10 = l.set('sch1.10', S1_4, 'Additional income');
+    const S1_15 = l.set('sch1.15', deductibleSeTax, 'Deductible part of self-employment tax');
+    const S1_26 = l.set('sch1.26', S1_15, 'Total adjustments to income');
+    return {
+      activeBusiness: null,
+      needsScheduleC: false,
+      needsScheduleSE,
+      needsForm8829: false,
+      needsForm7206: false,
+      needsForm4797: form4797.needs4797,
+      needsSchedule1: form4797.needs4797 || needsScheduleSE || S1_10 !== 0 || S1_26 !== 0,
+      netProfitOrLoss: 0,
+      seNetEarnings,
+      seTax,
+      deductibleSeTax,
+      sepDeduction: 0,
+      seHealthInsuranceDeduction: 0,
+      schedule1AdditionalIncome: S1_10,
+      schedule1Adjustments: S1_26,
+      homeOfficeScheduleAReduction: { mortgageInterest: 0, realEstateTax: 0 },
+      netQbi: 0,
+      printed: emptyPrinted,
+      form4797,
+    };
+  }
 
   // 2. Schedule C Part I — Income
   const ownerNecReceipts = sumCents(necs.filter((n) => n.owner === biz.owner).map((n) => roundToDollar(n.box1NonemployeeCompensation)));
@@ -484,15 +566,16 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
   const L31 = l.set('schC.31', L29 - L30, 'Net profit or (loss)', 'Line 29 − line 30');
 
   // 5. Schedule SE — Self-Employment Tax
-  const seRaw = L31 > 0 ? rateToDollar(L31, p.selfEmployment.netEarningsFactor) : L31;
+  const combinedSeInput = L31 + k1SeTotal;
+  const seRaw = combinedSeInput > 0 ? rateToDollar(combinedSeInput, p.selfEmployment.netEarningsFactor) : combinedSeInput;
   const needsScheduleSE = seRaw >= p.selfEmployment.minNetEarnings;
   let seNetEarnings = 0;
   let seTax = 0;
   let deductibleSeTax = 0;
 
   if (needsScheduleSE) {
-    l.set('schSE.2', L31, 'Net profit or (loss) from Schedule C, line 31');
-    l.set('schSE.3', L31, 'Combined net earnings');
+    l.set('schSE.2', combinedSeInput, 'Net profit or (loss) from Schedule C, line 31 and Schedule(s) K-1');
+    l.set('schSE.3', combinedSeInput, 'Combined net earnings');
     const SE4a = l.set('schSE.4a', seRaw, '92.35% of line 3');
     const SE4c = l.set('schSE.4c', SE4a, 'Combined net earnings from self-employment');
     const SE6 = l.set('schSE.6', SE4c, 'Net earnings from self-employment');

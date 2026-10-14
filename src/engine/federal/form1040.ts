@@ -1,10 +1,11 @@
-import { sumCents, type Cents } from '../money';
+import { sumCents, roundToDollar, type Cents } from '../money';
 import { Ledger } from '../ledger';
 import { FED_2025, type FedParams } from '../params/fed2025';
 import type { TaxFacts } from '../../shared/facts';
 import { scheduleA } from './scheduleA';
 import { scheduleB } from './scheduleB';
 import { computeBusinessAndSchedule1, type BusinessResult } from './business';
+import { computeScheduleE, type ScheduleEOutput } from './scheduleE';
 import {
   capitalLossCarryoverTo2026,
   computeScheduleD,
@@ -12,7 +13,7 @@ import {
   type Form8949Sheet,
   type ScheduleDCheckboxes,
 } from './scheduleD';
-import { computeForm8995 } from './form8995';
+import { computeForm8995, type Form8995Result } from './form8995';
 import { qdcgWorksheet } from './qdcg';
 import { taxOnOrdinaryIncome } from './taxComputation';
 import { form8959 } from './form8959';
@@ -32,13 +33,17 @@ export type FederalFormId =
   | 'schC'
   | 'schD'
   | 'f8949'
+  | 'schE'
   | 'schSE'
   | 'f4797'
   | 'f8995'
   | 'f8995a'
   | 'f8959'
   | 'f8960'
+  | 'f8582'
   | 'f8829'
+  | 'f4562'
+  | 'f7203'
   | 'f7206';
 
 export interface FederalResult {
@@ -74,6 +79,10 @@ export interface FederalResult {
   qbiCarryforwardTo2026: { qbiLoss: Cents; reitPtpLoss: Cents };
   /** Schedule C / SE / 8829 / 7206 / 4797 computation details. */
   business: BusinessResult;
+  /** Schedule E / Form 4562 / Form 8582 / Form 7203 computation details. */
+  scheduleE: ScheduleEOutput;
+  /** Form 8995 / 8995-A QBI computation details. */
+  qbi: Form8995Result;
 }
 
 /** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
@@ -90,15 +99,48 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     'Tax-exempt interest',
   );
   const L2b = l.set('f1040.2b', b.taxableInterest, 'Taxable interest');
-  const L3a = l.set('f1040.3a', sumCents(f.f1099Div.map((x) => x.box1bQualifiedDividends)), 'Qualified dividends');
+  const L3a = l.set(
+    'f1040.3a',
+    sumCents([...f.f1099Div.map((x) => x.box1bQualifiedDividends), ...(f.k1s ?? []).map((k) => roundToDollar(k.qualifiedDividends))]),
+    'Qualified dividends',
+  );
   const L3b = l.set('f1040.3b', b.ordinaryDividends, 'Ordinary dividends');
   const ret = retirementDistributions(f, p, l);
   const L4b = ret.line4b;
   const L5b = ret.line5b;
   const biz = computeBusinessAndSchedule1(f, p, l);
-  const d = computeScheduleD(f, L3a, p, l, biz.form4797.scheduleDLine11);
+
+  // Compute preliminary Schedule D without S-corp excess distribution gain first to get MAGI before passive loss for Form 8582 line 6
+  const prelimScorpGain = sumCents(
+    (f.k1s ?? [])
+      .filter((k) => k.entityType === '1120S' && k.sCorpBasis)
+      .map((k) => {
+        const b = k.sCorpBasis!;
+        const inc =
+          Math.max(0, roundToDollar(k.ordinaryBusinessIncome)) +
+          Math.max(0, roundToDollar(k.netRentalRealEstateIncome)) +
+          Math.max(0, roundToDollar(k.otherNetRentalIncome ?? 0)) +
+          Math.max(0, roundToDollar(k.interestIncome)) +
+          Math.max(0, roundToDollar(k.ordinaryDividends)) +
+          Math.max(0, roundToDollar(k.royalties ?? 0)) +
+          Math.max(0, roundToDollar(k.netShortTermCapitalGain) + roundToDollar(k.netLongTermCapitalGain)) +
+          Math.max(0, roundToDollar(k.netSection1231Gain));
+        const stockBeforeDist = roundToDollar(b.beginningStockBasis) + roundToDollar(b.capitalContributions ?? 0) + inc;
+        return Math.max(0, roundToDollar(b.distributions ?? 0) - stockBeforeDist);
+      }),
+  );
+  const d = computeScheduleD(f, L3a, p, l, biz.form4797.scheduleDLine11, prelimScorpGain);
   const L7a = l.set('f1040.7a', d.line7a, 'Capital gain or (loss)');
-  const L8 = l.set('f1040.8', biz.schedule1AdditionalIncome, 'Additional income (Schedule 1)');
+  l.set('f1040.7', L7a, 'Capital gain or (loss)');
+
+  // Form 8582 line 6 MAGI = AGI before passive income/loss, taxable Social Security, and deductible half of SE tax
+  const magiBeforePassive =
+    L1z + L2b + L3b + L4b + L5b + L7a + biz.schedule1AdditionalIncome - (biz.schedule1Adjustments - biz.deductibleSeTax);
+  const schE = computeScheduleE(f, l, magiBeforePassive);
+  const s1Line10 = schE.needsScheduleE
+    ? l.set('sch1.10', biz.schedule1AdditionalIncome + schE.netScheduleEIncome, 'Additional income (Schedule 1, line 10)')
+    : biz.schedule1AdditionalIncome;
+  const L8 = l.set('f1040.8', s1Line10, 'Additional income (Schedule 1)');
   const L10 = l.set('f1040.10', biz.schedule1Adjustments, 'Adjustments to income (Schedule 1)');
   const otherIncomeBeforeSs = L1z + L2b + L3b + L4b + L5b + L7a + L8;
   const ss = socialSecurityWorksheet(f, otherIncomeBeforeSs, L2a, L10, p, l);
@@ -123,14 +165,16 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const itemizing = f.forceItemize || itemized > standard;
   const L12e = l.set('f1040.12e', itemizing ? itemized : standard, itemizing ? 'Itemized deductions (Schedule A)' : 'Standard deduction');
   const L13b = l.set('f1040.13b', schedule1A(f, L11b, p, l), 'Additional deductions (Schedule 1-A)');
+  const k1QbiSum = sumCents(schE.qbiEntries.map((e) => e.qbi));
+  const k1W2WagesSum = sumCents(schE.qbiEntries.map((e) => e.w2Wages));
   const qbi = computeForm8995(
     f,
     {
       taxableIncomeBeforeQbi: Math.max(0, L11b - L12e - L13b),
       netCapitalGainAndQualifiedDividends: L3a + d.netCapitalGain,
-      tradeOrBusinessQbi: biz.netQbi,
-      isSstb: biz.activeBusiness?.isSstb ?? true,
-      businessW2Wages: biz.activeBusiness?.expenses.wages ?? 0,
+      tradeOrBusinessQbi: biz.netQbi + k1QbiSum,
+      isSstb: biz.activeBusiness ? (biz.activeBusiness.isSstb ?? true) : schE.qbiEntries.some((e) => e.isSstb),
+      businessW2Wages: (biz.activeBusiness?.expenses.wages ?? 0) + k1W2WagesSum,
     },
     p,
     l,
@@ -214,7 +258,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   // 1040, Sch 1 (01), Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), Sch C (09), Sch D (12), 8949 (12A),
   // Sch SE (17), 4797 (27), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72), 8829 (176), 7206 (206).
   const forms: FederalFormId[] = ['f1040'];
-  if (biz.needsSchedule1) forms.push('sch1');
+  if (biz.needsSchedule1 || schE.needsScheduleE) forms.push('sch1');
   if (L13b > 0) forms.push('sch1A');
   if (S2_3 > 0 || S2_21 > 0) forms.push('sch2');
   if (s3.nonrefundableCredits > 0 || s3.otherPayments > 0) forms.push('sch3');
@@ -223,13 +267,17 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   if (biz.needsScheduleC) forms.push('schC');
   if (d.needsScheduleD) forms.push('schD');
   if (d.needsForm8949) forms.push('f8949');
+  if (schE.needsScheduleE) forms.push('schE');
   if (biz.needsScheduleSE) forms.push('schSE');
   if (biz.needsForm4797) forms.push('f4797');
   if (qbi.form === 'f8995') forms.push('f8995');
   if (qbi.form === 'f8995a') forms.push('f8995a');
   if (medicare.tax > 0 || medicare.withholding > 0) forms.push('f8959');
   if (niit > 0) forms.push('f8960');
+  if (schE.needsForm8582) forms.push('f8582');
   if (biz.needsForm8829) forms.push('f8829');
+  if (schE.needsForm4562) forms.push('f4562');
+  if (schE.needsForm7203) forms.push('f7203');
   if (biz.needsForm7206) forms.push('f7206');
 
   const carryoverTo2026 = capitalLossCarryoverTo2026({
@@ -261,5 +309,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     capitalLossCarryoverTo2026: carryoverTo2026,
     qbiCarryforwardTo2026: qbi.carryforwardTo2026,
     business: biz,
+    scheduleE: schE,
+    qbi,
   };
 }

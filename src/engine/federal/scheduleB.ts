@@ -9,7 +9,7 @@ export interface ScheduleBResult {
   dividendPayers: { name: string; amount: Cents }[];
 }
 
-/** Schedule B (2025) Parts I and II. Payers are listed as on the 1099s (brokerage name + total). */
+/** Schedule B (2025) Parts I and II. Payers are listed as on the 1099s (brokerage name + total) and Schedules K-1. */
 export function scheduleB(f: TaxFacts, l: Ledger): ScheduleBResult {
   const interestPayers = [
     ...f.f1099Int.map((x) => ({ name: x.payerName, amount: x.box1Interest + x.box3UsTreasuryInterest })),
@@ -19,8 +19,16 @@ export function scheduleB(f: TaxFacts, l: Ledger): ScheduleBResult {
         amount: sumCents(b.lots.map((lot) => roundToDollar(lot.marketDiscount))),
       }))
       .filter((x) => x.amount > 0),
+    ...(f.k1s ?? [])
+      .map((k) => ({ name: `${k.entityName} (Schedule K-1)`, amount: roundToDollar(k.interestIncome) }))
+      .filter((x) => x.amount > 0),
   ];
-  const dividendPayers = f.f1099Div.map((x) => ({ name: x.payerName, amount: x.box1aOrdinaryDividends }));
+  const dividendPayers = [
+    ...f.f1099Div.map((x) => ({ name: x.payerName, amount: x.box1aOrdinaryDividends })),
+    ...(f.k1s ?? [])
+      .map((k) => ({ name: `${k.entityName} (Schedule K-1)`, amount: roundToDollar(k.ordinaryDividends) }))
+      .filter((x) => x.amount > 0),
+  ];
   const L2 = l.set('schB.2', sumCents(interestPayers.map((x) => x.amount)), 'Total interest');
   const L4 = l.set('schB.4', L2, 'Taxable interest', 'Line 2 − line 3');
   const L6 = l.set('schB.6', sumCents(dividendPayers.map((x) => x.amount)), 'Total ordinary dividends');

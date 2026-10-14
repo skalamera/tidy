@@ -87,11 +87,11 @@ describe('ingest pipeline', () => {
   });
 
   it('dedupes the same file and marks unsupported documents', async () => {
-    const { store, deps } = await setup(['K-1'], (call) =>
-      call.system === CLASSIFY_SYSTEM ? classification('k1_1065', 'Blackstone') : {},
+    const { store, deps } = await setup(['1099-MISC'], (call) =>
+      call.system === CLASSIFY_SYSTEM ? classification('f1099_misc', 'Acme') : {},
     );
-    const a = await addFile(deps, 'k1.pdf', Buffer.from('%PDF k1'));
-    const b = await addFile(deps, 'k1 copy.pdf', Buffer.from('%PDF k1'));
+    const a = await addFile(deps, 'misc.pdf', Buffer.from('%PDF misc'));
+    const b = await addFile(deps, 'misc copy.pdf', Buffer.from('%PDF misc'));
     expect(b).toEqual({ id: a.id, duplicate: true });
     await processDocument(deps, a.id);
     expect(store.get().documents[0].status).toBe('unsupported');

@@ -132,8 +132,25 @@ export const MD502SU_2025: FormMap = {
     spouseLastName: 'Text Field 7',
     spouseSsn: 'Text Field 8',
     'md502su.ab': 'Text Field 43',
+    'md502su.bb': 'Text Field 44',
     'md502su.hh': 'Text Field 52',
     'md502su.total': 'Text Field 87',
+  },
+  checks: {},
+};
+
+export const MD500DM_2025: FormMap = {
+  template: 'forms/2025/md500dm.pdf',
+  numbers: 'plain',
+  pages: [0],
+  text: {
+    fullName: 'Enter name as shown on form 7',
+    ssn: 'Enter FEIN 6',
+    'md500dm.1.c1': 'Enter name as shown on form 8',
+    'md500dm.1.c2': 'Enter name as shown on form 12',
+    'md500dm.1.c3': 'Enter name as shown on form 13',
+    'md500dm.8.c3': 'Enter name as shown on form 29',
+    'md500dm.9.c3': 'Enter name as shown on form 30',
   },
   checks: {},
 };

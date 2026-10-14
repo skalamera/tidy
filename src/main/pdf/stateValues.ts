@@ -2,7 +2,7 @@ import type { Cents } from '../../engine/money';
 import { ageAtEndOf2025, is65, type MdFormId, type MdResult } from '../../engine/md/form502';
 import type { TaxFacts } from '../../shared/facts';
 import { plainAmount, type FillValues } from './fill';
-import { MD502CG_2025, MD502CR_2025, MD502R_2025, MD502SU_2025, MD502_2025 } from './maps/md2025';
+import { MD500DM_2025, MD502CG_2025, MD502CR_2025, MD502R_2025, MD502SU_2025, MD502_2025 } from './maps/md2025';
 import type { FormMap } from './maps/federal2025';
 import type { Ledger } from '../../engine/ledger';
 
@@ -12,6 +12,7 @@ export const STATE_MAPS: Record<MdFormId, FormMap> = {
   md502cg: MD502CG_2025,
   md502r: MD502R_2025,
   md502cr: MD502CR_2025,
+  md500dm: MD500DM_2025,
 };
 
 function ledgerText(map: FormMap, l: Ledger): Record<string, string> {
@@ -47,6 +48,21 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
     return { text, checks };
   }
 
+  if (id === 'md500dm') {
+    const full =
+      f.spouse && f.filingStatus === 'mfj'
+        ? `${f.taxpayer.firstName} ${f.taxpayer.lastName} & ${f.spouse.firstName} ${f.spouse.lastName}`
+        : `${f.taxpayer.firstName} ${f.taxpayer.lastName}`;
+    return {
+      text: {
+        ...ledgerText(map, md.ledger),
+        fullName: full,
+        ssn: f.taxpayer.ssn,
+      },
+      checks: [],
+    };
+  }
+
   if (id !== 'md502') return { text, checks: [] };
 
   const sub = f.residency.mdSubdivision;
@@ -67,7 +83,13 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
     'md502.D.count': String(md.exemptions.total),
     localRate: md.localRatePrinted ?? '',
   });
-  if (md.ledger.get('md502.13') > 0) text['md502.13.code1'] = 'ab';
+  const codes: string[] = [];
+  if (md.ledger.get('md502su.ab') > 0) codes.push('ab');
+  if (md.ledger.get('md502su.bb') > 0) codes.push('bb');
+  if (md.ledger.get('md502su.hh') > 0) codes.push('hh');
+  codes.forEach((c, idx) => {
+    text[`md502.13.code${idx + 1}`] = c;
+  });
   for (const line of ['41', '43', '46', '47', '48', '50', '52']) text[`md502.${line}.cents`] = cents(md.ledger.get(`md502.${line}`));
   const checks = ['exemptYou'];
   if (md.exemptions.spouse) checks.push('exemptSpouse');

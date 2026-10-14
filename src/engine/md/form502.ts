@@ -5,11 +5,12 @@ import { MD_2025, type MdCounty, type MdParams } from '../params/md2025';
 import type { FederalResult } from '../federal/form1040';
 import { taxableDistribution } from '../federal/retirement';
 import { ownerScheduleCIncome } from '../federal/business';
+import { ownerScheduleEIncome } from '../federal/scheduleE';
 import { normalizeLot } from '../federal/scheduleD';
 import type { Form1099R, Owner, Person, TaxFacts } from '../../shared/facts';
 import { mdCapitalGainSurtax, mdExemptionValue, mdItemizedPhaseOut, mdLocalTax, mdStateTax } from './mdTax';
 
-export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr';
+export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr' | 'md500dm';
 
 export interface MdResult {
   ledger: Ledger;
@@ -24,6 +25,8 @@ export interface MdResult {
   /** Checkboxes on Form 502 line 10a ("Yourself", "Spouse") when claiming the Worksheet 13A pension exclusion. */
   pensionExclusion: { you: boolean; spouse: boolean };
   forms: MdFormId[];
+  needsForm500DM: boolean;
+  needsForm502SU: boolean;
 }
 
 /** Born before January 2, 1961 = 65 or older at the end of 2025 (same test as Form 1040 line 12d). */
@@ -149,7 +152,8 @@ function computeSeniorTaxCredit(f: TaxFacts, fagi: Cents, p: MdParams, l: Ledger
   return credit;
 }
 
-const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: Cents, spouseSsNet: Cents, fl: Ledger) => {
+const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: Cents, spouseSsNet: Cents, fed: FederalResult) => {
+  const fl = fed.ledger;
   const totalNetSs = youSsNet + spouseSsNet;
   const ownerNetSs = who === 'taxpayer' ? youSsNet : spouseSsNet;
   const ownerTaxableSs = totalNetSs > 0 ? roundToDollar((totalTaxableSs * ownerNetSs) / totalNetSs) : 0;
@@ -159,12 +163,14 @@ const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: C
   const ownerMarketDiscount = sumCents(
     (f.f1099B ?? []).filter((b) => b.owner === who).flatMap((b) => b.lots.map((lot) => roundToDollar(lot.marketDiscount))),
   );
+  const schEByOwner = ownerScheduleEIncome(f, fed.scheduleE);
   return sumCents([
     ...f.w2s.filter((w) => w.owner === who).map((w) => w.box1Wages),
     ...f.f1099Int.filter((x) => x.owner === who).map((x) => x.box1Interest + x.box3UsTreasuryInterest),
     ...f.f1099Div.filter((x) => x.owner === who).map((x) => x.box1aOrdinaryDividends + x.box2aCapitalGainDistributions),
     ...(f.f1099R ?? []).filter((r) => r.owner === who).map(fedTaxable1099R),
     ownerScheduleCIncome(f, who, fl),
+    schEByOwner[who],
     ownerCapGainFromB,
     ownerMarketDiscount,
     ownerTaxableSs,
@@ -195,20 +201,60 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   const ret = compute502RAndPensionExclusion(f, p, l);
   l.set('md502.1d', ret.line1d, 'Taxable pensions, IRAs, and annuities');
 
-  // Additions
+  // Additions & Form 500DM Decoupling Modification
   const L2 = l.set(
     'md502.2',
     Math.max(0, fl.get('f1040.2a') - (f.stateReturn.homeStateMuniInterest ?? 0)),
     'Tax-exempt interest from other states’ bonds',
   );
-  const L6 = l.set('md502.6', L2, 'Total additions');
+  let dmCol1 = roundToDollar(f.mdDecoupling?.federalDepreciation ?? 0);
+  let dmCol2 = roundToDollar(f.mdDecoupling?.mdDepreciationWithoutDecoupling ?? 0);
+  if (!f.mdDecoupling) {
+    for (const r of f.rentals ?? []) {
+      for (const a of r.depreciableAssets ?? []) {
+        if (a.mdDepreciationWithoutDecoupling !== undefined) {
+          dmCol1 += roundToDollar(a.currentYearDepreciation ?? 0);
+          dmCol2 += roundToDollar(a.mdDepreciationWithoutDecoupling);
+        }
+      }
+    }
+  }
+  const dmDiff1 = dmCol1 - dmCol2;
+  const pteDm =
+    roundToDollar(f.mdDecoupling?.pteDecouplingModification ?? 0) +
+    sumCents((f.k1s ?? []).map((k) => roundToDollar(k.mdDecouplingModification ?? 0)));
+  const needsForm500DM = dmCol1 !== 0 || dmCol2 !== 0 || pteDm !== 0;
+
+  let dmAddition5 = 0;
+  let dmSubtractionBb = 0;
+  if (needsForm500DM) {
+    l.set('md500dm.1.c1', dmCol1, 'Form 500DM line 1 col 1: Federal depreciation');
+    l.set('md500dm.1.c2', dmCol2, 'Form 500DM line 1 col 2: Depreciation without decoupled provisions');
+    l.set('md500dm.1.c3', dmDiff1, 'Form 500DM line 1 col 3: Depreciation decoupling difference');
+    fl.set('md500dm.1.c1', dmCol1, 'Form 500DM line 1 col 1: Federal depreciation');
+    fl.set('md500dm.1.c2', dmCol2, 'Form 500DM line 1 col 2: Depreciation without decoupled provisions');
+    fl.set('md500dm.1.c3', dmDiff1, 'Form 500DM line 1 col 3: Depreciation decoupling difference');
+    if (pteDm !== 0) {
+      l.set('md500dm.9.c3', pteDm, 'Form 500DM line 9 col 3: Decoupling from PTE');
+      fl.set('md500dm.9.c3', pteDm, 'Form 500DM line 9 col 3: Decoupling from PTE');
+    }
+    const netDm = dmDiff1 + pteDm;
+    if (netDm > 0) dmAddition5 = netDm;
+    else if (netDm < 0) dmSubtractionBb = Math.abs(netDm);
+  }
+  const L5 = l.set('md502.5', dmAddition5, 'Other additions (Form 500DM decoupling modification, code l)');
+  if (dmAddition5 > 0) fl.set('md502.5', dmAddition5, 'Other additions (Form 500DM decoupling modification, code l)');
+  const L6 = l.set('md502.6', L2 + L5, 'Total additions');
   const L7 = l.set('md502.7', L1 + L6, 'Federal AGI + additions');
+  fl.set('md502.7', L7, 'Federal AGI + additions');
 
   // Subtractions (10a = Pension exclusion Worksheet 13A; 11 = Social Security; 13 = 502SU; 14 = Two-income Worksheet 13D)
   const L10a = l.set('md502.10a', ret.line10a, 'Pension exclusion', 'Worksheet 13A');
   const L11 = l.set('md502.11', fl.get('f1040.6b'), 'Taxable Social Security benefits');
   const usObligations = sumCents(f.f1099Int.map((x) => x.box3UsTreasuryInterest));
   const SUab = l.set('md502su.ab', usObligations, 'Income from U.S. Government obligations');
+  const SUbb = l.set('md502su.bb', dmSubtractionBb, 'Net decoupling subtraction modification (Form 500DM, code bb)');
+  if (dmSubtractionBb > 0) fl.set('md502su.bb', dmSubtractionBb, 'Net decoupling subtraction modification (Form 500DM, code bb)');
   const persons = status === 'mfj' ? 2 : 1;
   const SUhh = l.set(
     'md502su.hh',
@@ -216,14 +262,19 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     'Exemption adjustment for U.S. obligations',
     'Worksheet 13C',
   );
-  const L13 = l.set('md502.13', l.set('md502su.total', SUab + SUhh, 'Total subtractions from Form 502SU'), 'Subtractions from Form 502SU');
+  const L13 = l.set(
+    'md502.13',
+    l.set('md502su.total', SUab + SUbb + SUhh, 'Total subtractions from Form 502SU'),
+    'Subtractions from Form 502SU',
+  );
+  fl.set('md502.13', L13, 'Subtractions from Form 502SU');
   let L14 = 0;
   if (status === 'mfj' && f.spouse) {
     const you =
-      ownerIncome(f, 'taxpayer', L11, ret.youSsNet, ret.spouseSsNet, fl) -
+      ownerIncome(f, 'taxpayer', L11, ret.youSsNet, ret.spouseSsNet, fed) -
       ownerSubtractions(f, 'taxpayer', ret.youExcluded, L11, ret.youSsNet, ret.spouseSsNet);
     const spouse =
-      ownerIncome(f, 'spouse', L11, ret.youSsNet, ret.spouseSsNet, fl) -
+      ownerIncome(f, 'spouse', L11, ret.youSsNet, ret.spouseSsNet, fed) -
       ownerSubtractions(f, 'spouse', ret.spouseExcluded, L11, ret.youSsNet, ret.spouseSsNet);
     L14 = Math.min(usd(1_200), Math.max(0, Math.min(you, spouse)));
   }
@@ -310,6 +361,7 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   if (L13 > 0) forms.push('md502su');
   if (L24 > 0) forms.push('md502cr');
   if (subjectToSurtax > 0) forms.push('md502cg');
+  if (needsForm500DM) forms.push('md500dm');
   return {
     ledger: l,
     itemizing,
@@ -321,5 +373,9 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     exemptions: { you, spouse, age65, blind, extra, total: (spouse ? 2 : 1) + extra },
     pensionExclusion: { you: ret.youExcluded > 0, spouse: ret.spouseExcluded > 0 },
     forms,
+    needsForm500DM,
+    needsForm502SU: L13 > 0,
   };
 }
+
+export const computeMaryland = computeMd;

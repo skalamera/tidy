@@ -312,6 +312,164 @@ export interface ScheduleCBusiness {
   priorSection1231Losses?: Cents;
 }
 
+/** Depreciable rental asset for Schedule E line 18 / Form 4562. */
+export interface RentalDepreciableAsset {
+  description: string;
+  /** Month and year placed in service (MM/YYYY), e.g. "06/2025" or "03/2021". */
+  placedInService: string;
+  /** Depreciable basis (excluding land). */
+  basis: Cents;
+  /** Recovery period in years (27.5 for residential rental real estate, 39 for commercial, 5/7/15 for appliances/improvements). */
+  recoveryPeriodYears?: number;
+  /** True if placed in service during 2025 (requires Form 4562 Part III Section B). */
+  placedInServiceIn2025?: boolean;
+  /** Optional explicit 2025 depreciation deduction in cents (when omitted, Tidy computes straight-line MACRS). */
+  currentYearDepreciation?: Cents;
+  /** Optional Maryland depreciation deduction without federal bonus/§179 decoupling (for Form 500DM). */
+  mdDepreciationWithoutDecoupling?: Cents;
+}
+
+/** Rental real estate or royalty property reported on Schedule E Part I (columns A, B, C). */
+export interface RentalProperty {
+  id: string;
+  owner: Owner;
+  /** Line 1a: Physical address (street, city, state, ZIP). */
+  address: string;
+  /** Line 1b: Property type code 1–8 (1=Single Family, 2=Multi-Family, 3=Vacation/Short-Term, 4=Commercial, 5=Land, 6=Royalties, 7=Self-Rental, 8=Other). */
+  propertyType: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  otherPropertyTypeDescription?: string;
+  /** Line 2: Fair rental days during 2025. */
+  fairRentalDays: number;
+  /** Line 2: Personal use days during 2025. */
+  personalUseDays: number;
+  /** Line 2: Qualified Joint Venture checkbox. */
+  qjv?: boolean;
+  /** Active participation for the $25,000 special rental real estate loss allowance on Form 8582 Part I/II (default true for rental real estate). */
+  activeParticipation?: boolean;
+  /** Qualifies as a §199A trade or business for QBI on Form 8995 / 8995-A (default false unless specified). */
+  qualifiesForQbi?: boolean;
+  /** Prior-year unallowed passive loss carryover for this property (Form 8582 Part IV col (c), positive magnitude). */
+  priorUnallowedPassiveLoss?: Cents;
+  /** Line 3: Rents received. */
+  rentsReceived: Cents;
+  /** Line 4: Royalties received. */
+  royaltiesReceived?: Cents;
+  /** Lines 5–19: Rental expenses. */
+  expenses: {
+    advertising?: Cents; // line 5
+    autoAndTravel?: Cents; // line 6
+    cleaningAndMaintenance?: Cents; // line 7
+    commissions?: Cents; // line 8
+    insurance?: Cents; // line 9
+    legalAndProfessional?: Cents; // line 10
+    managementFees?: Cents; // line 11
+    mortgageInterest?: Cents; // line 12
+    otherInterest?: Cents; // line 13
+    repairs?: Cents; // line 14
+    supplies?: Cents; // line 15
+    taxes?: Cents; // line 16
+    utilities?: Cents; // line 17
+    depreciation?: Cents; // line 18 (added to any computed asset depreciation)
+    other?: Cents; // line 19
+    otherDescription?: string;
+  };
+  /** Depreciable assets (buildings/improvements) for this property. */
+  depreciableAssets?: RentalDepreciableAsset[];
+}
+
+/** Schedule K-1 from a Partnership (Form 1065), S Corporation (Form 1120-S), or Estate/Trust (Form 1041). */
+export interface ScheduleK1 {
+  id: string;
+  owner: Owner;
+  /** Entity type: '1065' = Partnership, '1120S' = S Corporation, '1041' = Estate or Trust. */
+  entityType: '1065' | '1120S' | '1041';
+  entityName: string;
+  entityEin: string;
+  isForeignPartnership?: boolean;
+  /** True if the taxpayer materially participated in the trade/business (nonpassive) vs passive activity (default false = passive for box 1). */
+  isMaterialParticipation?: boolean;
+  /** True if active participation in rental real estate (box 2) for Form 8582 $25k allowance (default false for K-1 unless checked). */
+  activeRentalParticipation?: boolean;
+  /** Prior-year unallowed passive loss carryover for this K-1 activity (Form 8582 Part IV/V col (c), positive magnitude). */
+  priorUnallowedPassiveLoss?: Cents;
+  /** Box 1: Ordinary business income (loss) (1065 box 1 / 1120-S box 1). Signed cents. */
+  ordinaryBusinessIncome: Cents;
+  /** Box 2: Net rental real estate income (loss) (1065 box 2 / 1120-S box 2 / 1041 box 7). Signed cents. */
+  netRentalRealEstateIncome: Cents;
+  /** Box 3: Other net rental income (loss). Signed cents. */
+  otherNetRentalIncome?: Cents;
+  /** Guaranteed payments for services or capital (1065 box 4c). Always nonpassive income on Schedule E Part II col (k). */
+  guaranteedPayments?: Cents;
+  /** Interest income (1065 box 5 / 1120-S box 4 / 1041 box 1) -> Schedule B Part I. */
+  interestIncome: Cents;
+  /** Ordinary dividends (1065 box 6a / 1120-S box 5a / 1041 box 2a) -> Schedule B Part II. */
+  ordinaryDividends: Cents;
+  /** Qualified dividends (1065 box 6b / 1120-S box 5b / 1041 box 2b) -> Form 1040 line 3a. */
+  qualifiedDividends: Cents;
+  /** Royalties (1065 box 7 / 1120-S box 6) -> Schedule E Part I. */
+  royalties?: Cents;
+  /** Net short-term capital gain (loss) (1065 box 8 / 1120-S box 7 / 1041 box 3) -> Schedule D line 5. Signed cents. */
+  netShortTermCapitalGain: Cents;
+  /** Net long-term capital gain (loss) (1065 box 9a / 1120-S box 8a / 1041 box 4a) -> Schedule D line 12. Signed cents. */
+  netLongTermCapitalGain: Cents;
+  /** Collectibles (28%) gain (loss) (1065 box 9b / 1120-S box 8b / 1041 box 4b) -> Schedule D line 18 worksheet. Signed cents. */
+  collectibles28Gain?: Cents;
+  /** Unrecaptured Section 1250 gain (1065 box 9c / 1120-S box 8c / 1041 box 4c) -> Schedule D line 19 worksheet. */
+  unrecaptured1250Gain?: Cents;
+  /** Net Section 1231 gain (loss) (1065 box 10 / 1120-S box 9) -> Form 4797 Part I line 2. Signed cents. */
+  netSection1231Gain: Cents;
+  /** Section 179 deduction (1065 box 12 / 1120-S box 11) -> Schedule E Part II col (j) / Form 4562. */
+  section179Deduction?: Cents;
+  /** Self-employment net earnings (loss) (1065 box 14 code A) -> Schedule SE line 2. Signed cents. */
+  selfEmploymentEarnings?: Cents;
+  /** Section 199A Qualified Business Income (1065 box 20 code Z / 1120-S box 17 code V / 1041 box 14 code I). Signed cents. */
+  qbiAmount?: Cents;
+  /** Section 199A W-2 wages from the pass-through entity (Form 8995-A Schedule A / Part II). */
+  qbiW2Wages?: Cents;
+  /** Section 199A UBIA of qualified property from the pass-through entity. */
+  qbiUbia?: Cents;
+  /** Section 199A qualified REIT dividends from the pass-through entity. */
+  qbiReitDividends?: Cents;
+  /** True if the K-1 activity is an SSTB for §199A. */
+  isSstb?: boolean;
+  /** For 1041 Estate/Trust K-1s: Box 5 other portfolio and nonbusiness income, Box 6 ordinary business income, Box 8 other rental income. */
+  trustOtherIncome?: Cents;
+  /** S Corporation shareholder basis tracking (Form 7203, for entityType === '1120S'): */
+  sCorpBasis?: {
+    /** Line 1: Stock basis at the beginning of the tax year. */
+    beginningStockBasis: Cents;
+    /** Line 2: Capital contributions or additional stock acquired during the year. */
+    capitalContributions?: Cents;
+    /** Line 6: Distributions (1120-S box 16 code D). */
+    distributions?: Cents;
+    /** Line 8a: Nondeductible expenses (1120-S box 16 code C). */
+    nondeductibleExpenses?: Cents;
+    /** Line 16: Shareholder loan balance to S-corp at beginning of year. */
+    beginningLoanBalance?: Cents;
+    /** Line 21: Debt basis at beginning of year (defaults to beginningLoanBalance). */
+    beginningDebtBasis?: Cents;
+    /** Line 17: Additional loans made to S-corp during the year. */
+    additionalLoans?: Cents;
+    /** Line 19: Principal portion of debt repayment received during the year. */
+    debtRepayment?: Cents;
+    /** Prior-year carryover of disallowed ordinary loss due to basis (Form 7203 line 35 col (b)). */
+    priorDisallowedOrdinaryLoss?: Cents;
+  };
+  /** Maryland Form 500DM / 510 / 511 K-1 decoupling modification (positive = addition to MD income, negative = subtraction). */
+  mdDecouplingModification?: Cents;
+  evidence?: Record<string, Evidence>;
+}
+
+/** Maryland Form 500DM decoupling inputs (when federal return uses bonus depreciation, §179 > $25k, etc.). */
+export interface MdDecouplingFacts {
+  /** Line 1 Col 1: Federal depreciation deduction as filed. */
+  federalDepreciation: Cents;
+  /** Line 1 Col 2: Federal depreciation recomputed without decoupled provisions (bonus depreciation, §179 > $25k). */
+  mdDepreciationWithoutDecoupling: Cents;
+  /** Line 9 Col 3: Net decoupling modification from pass-through entities (signed). */
+  pteDecouplingModification?: Cents;
+}
+
 export interface ItemizedInputs {
   medicalExpenses: Cents;
   /** State/local income tax PAID during the calendar year beyond W-2 withholding: estimated payments
@@ -369,6 +527,9 @@ export interface TaxFacts {
   f1099Nec?: Form1099Nec[];
   ssa1099?: Ssa1099[];
   scheduleC?: ScheduleCBusiness[];
+  rentals?: RentalProperty[];
+  k1s?: ScheduleK1[];
+  mdDecoupling?: MdDecouplingFacts | null;
   carryovers?: Carryovers;
   /** True if taxpayer or spouse has nondeductible traditional IRA basis (requires Form 8606 on traditional IRA distributions). */
   hasNondeductibleIraBasis?: boolean | null;
