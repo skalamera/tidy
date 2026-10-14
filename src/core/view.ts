@@ -75,6 +75,7 @@ const KIND: Record<string, string> = {
   w2: 'W-2',
   f1099_int: '1099-INT',
   f1099_div: '1099-DIV',
+  f1099_b: '1099-B',
   f1099_r: '1099-R',
   ssa_1099: 'SSA-1099',
   f1099_composite: 'Brokerage 1099',
@@ -101,6 +102,10 @@ const FORM_NAME_BY_ID: Record<string, string> = {
   sch3: 'Schedule 3',
   schA: 'Schedule A',
   schB: 'Schedule B',
+  schD: 'Schedule D',
+  f8949: 'Form 8949',
+  f8995: 'Form 8995',
+  f8995a: 'Form 8995-A',
   f8959: 'Form 8959',
   f8960: 'Form 8960',
   md502: 'Maryland Form 502',
@@ -305,8 +310,33 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
         money('Ordinary dividends (box 1a)', x.box1aOrdinaryDividends, { source: x.evidence.box1aOrdinaryDividends ?? null }),
         money('Qualified dividends (box 1b)', x.box1bQualifiedDividends),
         money('Capital gain distributions (box 2a)', x.box2aCapitalGainDistributions),
+        ...(x.box2bUnrecaptured1250Gain > 0 ? [money('Unrecaptured Section 1250 gain (box 2b)', x.box2bUnrecaptured1250Gain)] : []),
+        ...(x.box2d28RateGain > 0 ? [money('28% rate gain (box 2d)', x.box2d28RateGain)] : []),
+        ...(x.box5Section199aDividends > 0 ? [money('Section 199A REIT dividends (box 5)', x.box5Section199aDividends)] : []),
       ],
     })),
+    ...(f.f1099B ?? []).map((b) => {
+      const proceeds = b.lots.reduce((s, l) => s + l.proceeds, 0);
+      const basis = b.lots.reduce((s, l) => s + l.costBasis, 0);
+      const wash = b.lots.reduce((s, l) => s + l.washSaleDisallowed, 0);
+      const discount = b.lots.reduce((s, l) => s + l.marketDiscount, 0);
+      const net = proceeds - basis + wash - discount;
+      return {
+        id: b.id,
+        title: b.payerName,
+        subtitle: `1099-B · ${b.lots.length} ${b.lots.length === 1 ? 'sale' : 'sales'}`,
+        rows: [
+          money('Total proceeds (box 1d)', proceeds),
+          money('Total cost basis (box 1e)', basis),
+          ...(wash > 0 ? [money('Wash sale loss disallowed (box 1g)', wash)] : []),
+          ...(discount > 0 ? [money('Accrued market discount (box 1f)', discount)] : []),
+          money('Net capital gain or (loss)', net),
+          ...(b.box4FedWithheld > 0
+            ? [money('Federal tax withheld (box 4)', b.box4FedWithheld, { source: b.evidence.box4FedWithheld ?? null })]
+            : []),
+        ],
+      };
+    }),
     {
       id: 'inv-totals',
       title: 'Totals',
@@ -315,7 +345,17 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
         line(r, 'f1040.2b', 'Taxable interest'),
         line(r, 'f1040.3b', 'Ordinary dividends'),
         line(r, 'f1040.3a', 'Qualified dividends', 'Taxed at lower capital gains rates'),
-        line(r, 'f1040.7a', 'Capital gain distributions'),
+        ...((f.f1099B ?? []).length > 0 || (f.carryovers?.capitalLossShortTerm ?? 0) > 0 || (f.carryovers?.capitalLossLongTerm ?? 0) > 0
+          ? [line(r, 'schD.7', 'Net short-term capital gain or (loss)'), line(r, 'schD.15', 'Net long-term capital gain or (loss)')]
+          : []),
+        line(r, 'f1040.7a', 'Capital gain or (loss) on Form 1040'),
+        ...(r.capitalLossCarryoverTo2026.shortTerm > 0 || r.capitalLossCarryoverTo2026.longTerm > 0
+          ? [
+              money('Capital loss carryover to 2026', r.capitalLossCarryoverTo2026.shortTerm + r.capitalLossCarryoverTo2026.longTerm, {
+                note: `Short-term: ${formatUsd(r.capitalLossCarryoverTo2026.shortTerm)} · Long-term: ${formatUsd(r.capitalLossCarryoverTo2026.longTerm)}`,
+              }),
+            ]
+          : []),
       ],
     },
   ];
@@ -329,6 +369,7 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
       rows: [
         line(r, 'f1040.12e', 'Deduction used'),
         line(r, 'schA.17', 'Itemized total'),
+        ...(r.ledger.get('f1040.13a') > 0 ? [line(r, 'f1040.13a', 'Qualified business / REIT dividend deduction (Form 8995)')] : []),
         ...(r.ledger.get('f1040.13b') > 0 ? [line(r, 'f1040.13b', 'Enhanced senior deduction (Schedule 1-A)')] : []),
       ],
     },

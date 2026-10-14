@@ -1,6 +1,7 @@
 import { PDFDocument, PDFName } from '@cantoo/pdf-lib';
 import type { Cents } from '../../engine/money';
 import type { FederalFormId, FederalResult } from '../../engine/federal/form1040';
+import type { Form8949Sheet } from '../../engine/federal/scheduleD';
 import type { TaxFacts } from '../../shared/facts';
 import { FEDERAL_MAPS, SCHB_DIVIDEND_ROWS, SCHB_INTEREST_ROWS, type FormMap } from './maps/federal2025';
 
@@ -112,14 +113,48 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     if (r.ledger.get('f1040.4a') > 0 && r.ledger.get('f1040.4b') === 0) text['f1040.4b'] = '0';
     if (r.ledger.get('f1040.5a') > 0 && r.ledger.get('f1040.5b') === 0) text['f1040.5b'] = '0';
     if (r.ledger.get('f1040.6a') > 0 && r.ledger.get('f1040.6b') === 0) text['f1040.6b'] = '0';
-    // Phase 1 never files Schedule D, so capital gain distributions go straight on 7a with box 7b checked.
-    if (r.ledger.get('f1040.7a') !== 0) checks.push('scheduleDNotRequired');
+    if (r.line7bCheck) checks.push('scheduleDNotRequired');
   } else {
     text.name = namesOnReturn(f);
     text.ssn = dashedSsn(f.taxpayer.ssn);
   }
 
   if (id === 'schA' && f.forceItemize && r.ledger.get('schA.17') < r.ledger.get('f1040.12e')) checks.push('forceItemize');
+
+  if (id === 'schD') {
+    const cb = r.scheduleDCheckboxes;
+    checks.push(cb.qofYes ? 'qofYes' : 'qofNo');
+    if (cb.line17Yes !== null) checks.push(cb.line17Yes ? 'line17Yes' : 'line17No');
+    if (cb.line20Yes !== null) checks.push(cb.line20Yes ? 'line20Yes' : 'line20No');
+    if (cb.line22Yes !== null) checks.push(cb.line22Yes ? 'line22Yes' : 'line22No');
+    // Schedule D lines 6, 14, and 21 are printed inside pre-printed parentheses on the PDF, so print positive magnitudes.
+    for (const k of ['schD.6', 'schD.14', 'schD.21'] as const) {
+      const v = Math.abs(r.ledger.get(k));
+      if (v > 0) text[k] = formAmount(v);
+      else delete text[k];
+    }
+  }
+
+  if (id === 'f8949' && r.form8949Sheets[0]) {
+    return { values: form8949SheetValues(f, r.form8949Sheets[0]), statements };
+  }
+
+  if (id === 'f8995') {
+    // Lines 3, 7, 16, and 17 have pre-printed parentheses on Form 8995, so print positive magnitudes.
+    for (const k of ['f8995.3', 'f8995.7', 'f8995.16', 'f8995.17'] as const) {
+      const v = Math.abs(r.ledger.get(k));
+      if (v > 0) text[k] = formAmount(v);
+      else delete text[k];
+    }
+  }
+
+  if (id === 'f8995a') {
+    for (const k of ['f8995a.29', 'f8995a.40'] as const) {
+      const v = Math.abs(r.ledger.get(k));
+      if (v > 0) text[k] = formAmount(v);
+      else delete text[k];
+    }
+  }
 
   if (id === 'schB') {
     const interest = fitRows(r.payers.interest, SCHB_INTEREST_ROWS, 'Schedule B, Part I, line 1 (interest)');
@@ -142,4 +177,36 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     checks.push(fa.foreignTrust ? 'foreignTrustYes' : 'foreignTrustNo');
   }
   return { values: { text, checks }, statements };
+}
+
+/** Build FillValues for one physical sheet of Form 8949 (Part I on page 1, Part II on page 2). */
+export function form8949SheetValues(f: TaxFacts, sheet: Form8949Sheet): FillValues {
+  const name = namesOnReturn(f);
+  const ssn = dashedSsn(f.taxpayer.ssn);
+  const text: Record<string, string> = { name, ssn, name2: name, ssn2: ssn };
+  const checks: string[] = [];
+
+  const fillPart = (partNum: 1 | 2, part: Form8949Sheet['part1']) => {
+    if (!part) return;
+    checks.push(`box${part.box}`);
+    part.lots.forEach((lot, i) => {
+      const p = `p${partNum}.r${i}`;
+      text[`${p}.a`] = lot.description;
+      text[`${p}.b`] = lot.dateAcquired;
+      text[`${p}.c`] = lot.dateSold;
+      text[`${p}.d`] = formAmount(lot.proceeds);
+      text[`${p}.e`] = formAmount(lot.costBasis);
+      if (lot.code) text[`${p}.f`] = lot.code;
+      if (lot.adjustment !== 0) text[`${p}.g`] = formAmount(lot.adjustment);
+      text[`${p}.h`] = formAmount(lot.gainOrLoss);
+    });
+    text[`p${partNum}.total.d`] = formAmount(part.totals.proceeds);
+    text[`p${partNum}.total.e`] = formAmount(part.totals.costBasis);
+    if (part.totals.adjustment !== 0) text[`p${partNum}.total.g`] = formAmount(part.totals.adjustment);
+    text[`p${partNum}.total.h`] = formAmount(part.totals.gainOrLoss);
+  };
+
+  fillPart(1, sheet.part1);
+  fillPart(2, sheet.part2);
+  return { text, checks };
 }

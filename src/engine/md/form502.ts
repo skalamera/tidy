@@ -4,6 +4,7 @@ import { FED_2025 } from '../params/fed2025';
 import { MD_2025, type MdCounty, type MdParams } from '../params/md2025';
 import type { FederalResult } from '../federal/form1040';
 import { taxableDistribution } from '../federal/retirement';
+import { normalizeLot } from '../federal/scheduleD';
 import type { Form1099R, Owner, Person, TaxFacts } from '../../shared/facts';
 import { mdCapitalGainSurtax, mdExemptionValue, mdItemizedPhaseOut, mdLocalTax, mdStateTax } from './mdTax';
 
@@ -151,11 +152,19 @@ const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: C
   const totalNetSs = youSsNet + spouseSsNet;
   const ownerNetSs = who === 'taxpayer' ? youSsNet : spouseSsNet;
   const ownerTaxableSs = totalNetSs > 0 ? roundToDollar((totalTaxableSs * ownerNetSs) / totalNetSs) : 0;
+  const ownerCapGainFromB = sumCents(
+    (f.f1099B ?? []).filter((b) => b.owner === who).flatMap((b) => b.lots.map((lot) => normalizeLot(lot).row.gainOrLoss)),
+  );
+  const ownerMarketDiscount = sumCents(
+    (f.f1099B ?? []).filter((b) => b.owner === who).flatMap((b) => b.lots.map((lot) => roundToDollar(lot.marketDiscount))),
+  );
   return sumCents([
     ...f.w2s.filter((w) => w.owner === who).map((w) => w.box1Wages),
     ...f.f1099Int.filter((x) => x.owner === who).map((x) => x.box1Interest + x.box3UsTreasuryInterest),
     ...f.f1099Div.filter((x) => x.owner === who).map((x) => x.box1aOrdinaryDividends + x.box2aCapitalGainDistributions),
     ...(f.f1099R ?? []).filter((r) => r.owner === who).map(fedTaxable1099R),
+    ownerCapGainFromB,
+    ownerMarketDiscount,
     ownerTaxableSs,
   ]);
 };

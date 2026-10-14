@@ -6,7 +6,7 @@ import { deriveFacts } from '../../core/deriveFacts';
 import type { TaxFacts } from '../../shared/facts';
 import type { AppState } from '../../shared/state';
 import { FEDERAL_MAPS, type FormMap } from './maps/federal2025';
-import { dashedSsn, federalValues, fillPdf, formAmount, namesOnReturn, type FillValues, type Overflow } from './fill';
+import { dashedSsn, federalValues, fillPdf, form8949SheetValues, formAmount, namesOnReturn, type FillValues, type Overflow } from './fill';
 import { STATE_MAPS, mdValues } from './stateValues';
 
 const FORM_TITLE: Record<FederalFormId, string> = {
@@ -16,6 +16,10 @@ const FORM_TITLE: Record<FederalFormId, string> = {
   sch3: 'Schedule 3',
   schA: 'Schedule A',
   schB: 'Schedule B',
+  schD: 'Schedule D',
+  f8949: 'Form 8949',
+  f8995: 'Form 8995',
+  f8995a: 'Form 8995-A',
   f8959: 'Form 8959',
   f8960: 'Form 8960',
 };
@@ -154,6 +158,13 @@ export async function buildPackage(state: AppState, readResource: (rel: string) 
   await coverPage(out, f, r, s);
   const statements: Overflow[] = [];
   for (const id of r.forms) {
+    if (id === 'f8949') {
+      for (const sheet of r.form8949Sheets) {
+        const pages = [...(sheet.part1 ? [0] : []), ...(sheet.part2 ? [1] : [])];
+        await append({ ...FEDERAL_MAPS.f8949, pages: pages.length > 0 ? pages : [0, 1] }, form8949SheetValues(f, sheet));
+      }
+      continue;
+    }
     const { values, statements: extra } = federalValues(id, f, r);
     statements.push(...extra);
     await append(FEDERAL_MAPS[id], values);

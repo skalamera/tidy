@@ -4,6 +4,14 @@ import { FED_2025, type FedParams } from '../params/fed2025';
 import type { TaxFacts } from '../../shared/facts';
 import { scheduleA } from './scheduleA';
 import { scheduleB } from './scheduleB';
+import {
+  capitalLossCarryoverTo2026,
+  computeScheduleD,
+  scheduleDTaxWorksheet,
+  type Form8949Sheet,
+  type ScheduleDCheckboxes,
+} from './scheduleD';
+import { computeForm8995 } from './form8995';
 import { qdcgWorksheet } from './qdcg';
 import { taxOnOrdinaryIncome } from './taxComputation';
 import { form8959 } from './form8959';
@@ -12,7 +20,8 @@ import { schedule3 } from './schedule3';
 import { amtScreen } from './amtScreen';
 import { is65OrOlder, retirementDistributions, schedule1A, socialSecurityWorksheet } from './retirement';
 
-export type FederalFormId = 'f1040' | 'sch1A' | 'schA' | 'schB' | 'sch2' | 'sch3' | 'f8959' | 'f8960';
+export type FederalFormId =
+  'f1040' | 'sch1A' | 'schA' | 'schB' | 'schD' | 'f8949' | 'sch2' | 'sch3' | 'f8959' | 'f8960' | 'f8995' | 'f8995a';
 
 export interface FederalResult {
   ledger: Ledger;
@@ -33,8 +42,18 @@ export interface FederalResult {
   line4c: { rollover: boolean; qcd: boolean };
   /** Form 1040 line 5c checkboxes (Rollover, PSO). */
   line5c: { rollover: boolean; pso: boolean };
+  /** Form 1040 line 7b checkbox ("If you are not required to file Schedule D, check here"). */
+  line7bCheck: boolean;
   /** Form 1040 line 12d checkboxes (65+ and blind for taxpayer and spouse). */
   line12d: { you65: boolean; youBlind: boolean; spouse65: boolean; spouseBlind: boolean };
+  /** Paginated Form 8949 sheets (11 rows per page per Part). */
+  form8949Sheets: Form8949Sheet[];
+  /** Schedule D checkboxes (QOF, lines 17, 20, 22). */
+  scheduleDCheckboxes: ScheduleDCheckboxes;
+  /** Capital loss carryover from 2025 to 2026 (computed via the 2025 Capital Loss Carryover Worksheet). */
+  capitalLossCarryoverTo2026: { shortTerm: Cents; longTerm: Cents };
+  /** Section 199A QBI / REIT / PTP loss carryforwards from 2025 to 2026. */
+  qbiCarryforwardTo2026: { qbiLoss: Cents; reitPtpLoss: Cents };
 }
 
 /** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
@@ -56,7 +75,8 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const ret = retirementDistributions(f, p, l);
   const L4b = ret.line4b;
   const L5b = ret.line5b;
-  const L7a = l.set('f1040.7a', sumCents(f.f1099Div.map((x) => x.box2aCapitalGainDistributions)), 'Capital gain distributions');
+  const d = computeScheduleD(f, L3a, p, l);
+  const L7a = l.set('f1040.7a', d.line7a, 'Capital gain or (loss)');
   const L8 = l.set('f1040.8', 0, 'Additional income (Schedule 1)');
   const L10 = l.set('f1040.10', 0, 'Adjustments to income (Schedule 1)');
   const otherIncomeBeforeSs = L1z + L2b + L3b + L4b + L5b + L7a + L8;
@@ -81,16 +101,40 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const itemized = scheduleA(f, L11b, p, l);
   const itemizing = f.forceItemize || itemized > standard;
   const L12e = l.set('f1040.12e', itemizing ? itemized : standard, itemizing ? 'Itemized deductions (Schedule A)' : 'Standard deduction');
-  const L13a = l.set('f1040.13a', 0, 'Qualified business income deduction');
   const L13b = l.set('f1040.13b', schedule1A(f, L11b, p, l), 'Additional deductions (Schedule 1-A)');
+  const qbi = computeForm8995(
+    f,
+    {
+      taxableIncomeBeforeQbi: Math.max(0, L11b - L12e - L13b),
+      netCapitalGainAndQualifiedDividends: L3a + d.netCapitalGain,
+    },
+    p,
+    l,
+  );
+  const L13a = l.set('f1040.13a', qbi.deduction, 'Qualified business income deduction');
   const L14 = l.set('f1040.14', L12e + L13a + L13b, 'Total deductions', 'Lines 12e + 13a + 13b');
   const L15 = l.set('f1040.15', Math.max(0, L11b - L14), 'Taxable income', 'Line 11b − line 14');
 
   // Tax
-  const usesQdcg = L3a > 0 || L7a > 0;
-  const tax = usesQdcg
-    ? qdcgWorksheet({ taxableIncome: L15, qualifiedDividends: L3a, netCapitalGainForWorksheet: L7a }, f.filingStatus, p, l)
-    : taxOnOrdinaryIncome(L15, f.filingStatus, p);
+  const usesSdtw = d.usesScheduleDTaxWorksheet;
+  const usesQdcg = !usesSdtw && (L3a > 0 || d.netCapitalGain > 0);
+  const tax = usesSdtw
+    ? scheduleDTaxWorksheet(
+        {
+          taxableIncome: L15,
+          qualifiedDividends: L3a,
+          schD15: l.get('schD.15'),
+          schD16: l.get('schD.16'),
+          schD18: l.get('schD.18'),
+          schD19: l.get('schD.19'),
+        },
+        f.filingStatus,
+        p,
+        l,
+      )
+    : usesQdcg
+      ? qdcgWorksheet({ taxableIncome: L15, qualifiedDividends: L3a, netCapitalGainForWorksheet: d.netCapitalGain }, f.filingStatus, p, l)
+      : taxOnOrdinaryIncome(L15, f.filingStatus, p);
   const L16 = l.set('f1040.16', tax, 'Income tax');
 
   const { mayOweAmt } = amtScreen(f, itemizing, p, l);
@@ -119,6 +163,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     sumCents([
       ...f.f1099Int.map((x) => x.box4FedWithheld),
       ...f.f1099Div.map((x) => x.box4FedWithheld),
+      ...(f.f1099B ?? []).map((x) => x.box4FedWithheld),
       ...(f.f1099R ?? []).map((x) => x.box4FedWithheld),
       ...(f.ssa1099 ?? []).map((x) => x.box6FedWithheld),
     ]),
@@ -139,15 +184,27 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L37 = l.set('f1040.37', Math.max(0, L24 - L33), 'Amount you owe', 'Line 24 − line 33');
 
   const foreign = f.foreignAccounts.hasForeignAccount === true || f.foreignAccounts.foreignTrust === true;
-  // Attachment Sequence No. order: 1040, Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), 8959 (71), 8960 (72).
+  // Attachment Sequence No. order: 1040, Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), Sch D (12), 8949 (12A), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72).
   const forms: FederalFormId[] = ['f1040'];
   if (L13b > 0) forms.push('sch1A');
   if (S2_3 > 0 || S2_21 > 0) forms.push('sch2');
   if (s3.nonrefundableCredits > 0 || s3.otherPayments > 0) forms.push('sch3');
   if (itemizing) forms.push('schA');
   if (L2b > p.scheduleBThreshold || L3b > p.scheduleBThreshold || foreign) forms.push('schB');
+  if (d.needsScheduleD) forms.push('schD');
+  if (d.needsForm8949) forms.push('f8949');
+  if (qbi.form === 'f8995') forms.push('f8995');
+  if (qbi.form === 'f8995a') forms.push('f8995a');
   if (medicare.tax > 0 || medicare.withholding > 0) forms.push('f8959');
   if (niit > 0) forms.push('f8960');
+
+  const carryoverTo2026 = capitalLossCarryoverTo2026({
+    agi: L11b,
+    totalDeductions: L14,
+    schD7: l.get('schD.7'),
+    schD15: l.get('schD.15'),
+    schD21: l.get('schD.21'),
+  });
 
   return {
     ledger: l,
@@ -163,6 +220,11 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     payers: { interest: b.interestPayers, dividends: b.dividendPayers },
     line4c: ret.line4c,
     line5c: ret.line5c,
+    line7bCheck: d.line7bCheck,
     line12d: { you65, youBlind, spouse65, spouseBlind },
+    form8949Sheets: d.form8949Sheets,
+    scheduleDCheckboxes: d.checkboxes,
+    capitalLossCarryoverTo2026: carryoverTo2026,
+    qbiCarryforwardTo2026: qbi.carryforwardTo2026,
   };
 }

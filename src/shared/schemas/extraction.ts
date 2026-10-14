@@ -109,6 +109,30 @@ export const F1099DivExtraction = z.object({
 });
 export type F1099DivExtractionT = z.infer<typeof F1099DivExtraction>;
 
+export const F1099BLot = z.object({
+  description: z.string().describe('Box 1a: Description of property (e.g. "100 sh. AAPL" or summary category description).'),
+  dateAcquired: z.string().nullable().describe('Box 1b: Date acquired (MM/DD/YYYY or "VARIOUS").'),
+  dateSold: z.string().nullable().describe('Box 1c: Date sold or disposed of (MM/DD/YYYY or "VARIOUS").'),
+  proceeds: Amount.describe('Box 1d: Proceeds (sales price).'),
+  costBasis: Amount.describe('Box 1e: Cost or other basis.'),
+  marketDiscount: Amount.describe('Box 1f: Accrued market discount.'),
+  washSaleDisallowed: Amount.describe('Box 1g: Wash sale loss disallowed.'),
+  box: z
+    .enum(['A', 'B', 'C', 'D', 'E', 'F'])
+    .describe(
+      'Form 8949 box: A=short-term basis reported to IRS, B=short-term basis not reported, D=long-term basis reported to IRS, E=long-term basis not reported.',
+    ),
+  collectibles: z.boolean().describe('True if Box 2 "Collectibles" is checked.'),
+});
+
+export const F1099BExtraction = z.object({
+  payerName: z.string(),
+  recipientName: z.string(),
+  box4FedWithheld: Amount,
+  lots: z.array(F1099BLot).describe('Every sale lot or category summary reported on Form 1099-B.'),
+});
+export type F1099BExtractionT = z.infer<typeof F1099BExtraction>;
+
 export const F1098Extraction = z.object({
   lenderName: z.string(),
   box1MortgageInterest: Amount,
@@ -190,6 +214,8 @@ export const PriorYearExtraction = z.object({
   carryovers: z.object({
     capitalLossShortTerm: Amount,
     capitalLossLongTerm: Amount,
+    qbiLoss: Amount.optional(),
+    reitPtpLoss: Amount.optional(),
     charitable: Amount,
     passiveLoss: Amount,
     amtCredit: Amount,

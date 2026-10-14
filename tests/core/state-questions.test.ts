@@ -89,15 +89,13 @@ describe('Maryland questions', () => {
   });
 });
 
-describe('deductions Tidy can’t take yet', () => {
-  it('warns that Section 199A dividends (1099-DIV box 5) get no QBI deduction yet', () => {
+describe('Section 199A dividends (Form 8995)', () => {
+  it('takes the 20% QBI deduction on Form 8995 for Section 199A dividends (1099-DIV box 5) without warning', () => {
     const s = answer(base(), { 'filing-status-same': 'yes', 'resident-state': 'MD' });
     const f = { ...deriveFacts(s), f1099Div: [div1099({ box1aOrdinaryDividends: usd(10_000), box5Section199aDividends: usd(2_500) })] };
-    const flag = deriveFlags(s, f, computeFederal(f)).find((x) => x.id === 'qbi-dividends');
-    expect(flag).toMatchObject({
-      severity: 'warning',
-      sectionId: 'investments',
-      title: 'Your 1099-DIV shows $2,500 of Section 199A dividends',
-    });
+    const r = computeFederal(f);
+    expect(r.ledger.get('f1040.13a')).toBe(usd(500));
+    expect(r.forms).toContain('f8995');
+    expect(deriveFlags(s, f, r).find((x) => x.id === 'qbi-dividends')).toBeUndefined();
   });
 });

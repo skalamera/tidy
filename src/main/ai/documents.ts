@@ -1,6 +1,7 @@
 import {
   Classification,
   F1098Extraction,
+  F1099BExtraction,
   F1099DivExtraction,
   F1099IntExtraction,
   F1099RExtraction,
@@ -19,6 +20,7 @@ const SCHEMAS = {
   w2: W2Extraction,
   f1099_int: F1099IntExtraction,
   f1099_div: F1099DivExtraction,
+  f1099_b: F1099BExtraction,
   f1099_r: F1099RExtraction,
   ssa_1099: Ssa1099Extraction,
   f1098: F1098Extraction,
@@ -57,6 +59,7 @@ const PART_FORM: Partial<Record<PartForm, ExtractForm>> = {
   w2: 'w2',
   f1099_int: 'f1099_int',
   f1099_div: 'f1099_div',
+  f1099_b: 'f1099_b',
   f1099_r: 'f1099_r',
   ssa_1099: 'ssa_1099',
   f1098: 'f1098',
@@ -72,6 +75,7 @@ export function extractionPlan(c: ClassificationT): PlanStep[] {
     case 'w2':
     case 'f1099_int':
     case 'f1099_div':
+    case 'f1099_b':
     case 'f1099_r':
     case 'ssa_1099':
     case 'f1098': {
@@ -79,7 +83,7 @@ export function extractionPlan(c: ClassificationT): PlanStep[] {
       return steps.length > 1 ? steps : [{ form: c.docType, pages: null }];
     }
     case 'f1099_composite':
-      return fromParts().filter((s) => s.form === 'f1099_int' || s.form === 'f1099_div' || s.form === 'f1099_r');
+      return fromParts().filter((s) => s.form === 'f1099_int' || s.form === 'f1099_div' || s.form === 'f1099_b' || s.form === 'f1099_r');
     case 'property_tax_bill':
     case 'charity_receipt':
     case 'estimated_payment_record':

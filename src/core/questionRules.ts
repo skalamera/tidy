@@ -345,8 +345,8 @@ export const RULES: Rule[] = [
     applies: () => true,
     build: () =>
       yesNo(
-        'Besides wages, interest, dividends, pensions, IRAs, and Social Security, did you have any other income in 2025?',
-        'For example a business, rental property, partnership or S corporation, trust, or sales of stocks, funds or other property.',
+        'Besides wages, interest, dividends, stock or fund sales, pensions, IRAs, and Social Security, did you have any other income in 2025?',
+        'For example a business, rental property, partnership or S corporation, or trust.',
       ),
     apply: () => {},
   },
@@ -500,6 +500,54 @@ export const RULES: Rule[] = [
       ),
     apply: (a, f) => {
       f.taxpayer.totallyDisabled = a === 'yes';
+    },
+  },
+  {
+    id: 'capital-loss-carryover',
+    sectionId: 'investments',
+    applies: (c) =>
+      c.prior === null && ((c.facts.f1099B ?? []).length > 0 || c.facts.f1099Div.some((x) => x.box2aCapitalGainDistributions > 0)),
+    build: () =>
+      yesNo(
+        'Do you have an unused capital loss carryover from your 2024 tax return?',
+        'If your capital losses in an earlier year exceeded the $3,000 ($1,500 married filing separately) limit, the rest carries forward to 2025.',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'capital-loss-carryover-st',
+    sectionId: 'investments',
+    applies: (c) => answerOf(c, 'capital-loss-carryover') === 'yes',
+    build: () =>
+      money(
+        'How much is your short-term capital loss carryover from 2024 to 2025? Enter 0 if none.',
+        'Line 8 of the Capital Loss Carryover Worksheet in the Schedule D instructions.',
+      ),
+    apply: (a, f) => {
+      f.carryovers = {
+        capitalLossShortTerm: Math.abs(cents(a)),
+        capitalLossLongTerm: f.carryovers?.capitalLossLongTerm ?? 0,
+        qbiLoss: f.carryovers?.qbiLoss ?? 0,
+        reitPtpLoss: f.carryovers?.reitPtpLoss ?? 0,
+      };
+    },
+  },
+  {
+    id: 'capital-loss-carryover-lt',
+    sectionId: 'investments',
+    applies: (c) => answerOf(c, 'capital-loss-carryover') === 'yes',
+    build: () =>
+      money(
+        'How much is your long-term capital loss carryover from 2024 to 2025? Enter 0 if none.',
+        'Line 13 of the Capital Loss Carryover Worksheet in the Schedule D instructions.',
+      ),
+    apply: (a, f) => {
+      f.carryovers = {
+        capitalLossShortTerm: f.carryovers?.capitalLossShortTerm ?? 0,
+        capitalLossLongTerm: Math.abs(cents(a)),
+        qbiLoss: f.carryovers?.qbiLoss ?? 0,
+        reitPtpLoss: f.carryovers?.reitPtpLoss ?? 0,
+      };
     },
   },
   {

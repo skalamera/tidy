@@ -9,7 +9,7 @@ import { FakeLlm } from '../../src/main/ai/llm';
 import { CLASSIFY_SYSTEM } from '../../src/main/ai/prompts';
 import { addFile, processDocument, type PdfTools } from '../../src/main/pipeline/ingest';
 import { deriveFacts } from '../../src/core/deriveFacts';
-import { priorYear, r1099Extraction, ssa1099Extraction, w2Extraction } from '../fixtures/state';
+import { b1099Extraction, priorYear, r1099Extraction, ssa1099Extraction, w2Extraction } from '../fixtures/state';
 
 const NOW = () => '2026-10-13T12:00:00.000Z';
 let n = 0;
@@ -115,6 +115,22 @@ describe('ingest pipeline', () => {
     expect(f.f1099R![0].box1GrossDistribution).toBe(3_500_000);
     expect(f.ssa1099).toHaveLength(1);
     expect(f.ssa1099![0].box5NetBenefits).toBe(2_000_000);
+  });
+
+  it('extracts a 1099-B (standalone or composite) and populates capital lots', async () => {
+    const bPage = '100 sh. AAPL 01/15/2023 08/20/2025 Proceeds 25,000.00 Cost basis 15,000.00';
+    const { store, deps } = await setup([bPage], (call) =>
+      call.system === CLASSIFY_SYSTEM
+        ? classification('f1099_composite', 'Charles Schwab', [{ form: 'f1099_b', firstPage: 1, lastPage: 1 }])
+        : b1099Extraction().data,
+    );
+    const { id } = await addFile(deps, 'schwab-1099.pdf', Buffer.from('%PDF 1099b'));
+    await processDocument(deps, id);
+    const f = deriveFacts(store.get());
+    expect(f.f1099B).toHaveLength(1);
+    expect(f.f1099B![0].lots).toHaveLength(1);
+    expect(f.f1099B![0].lots[0].proceeds).toBe(2_500_000);
+    expect(f.f1099B![0].lots[0].costBasis).toBe(1_500_000);
   });
 
   it('records a friendly error instead of crashing', async () => {

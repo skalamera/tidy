@@ -1,5 +1,6 @@
 import type {
   AmountT,
+  F1099BExtractionT,
   F1099RExtractionT,
   PriorYearExtractionT,
   Ssa1099ExtractionT,
@@ -103,6 +104,32 @@ export function ssa1099Extraction(p: Partial<Ssa1099ExtractionT> = {}): Extracti
       box4BenefitsRepaid: amt(null),
       box5NetBenefits: amt('20,000.00'),
       box6FedWithheld: amt('2,000.00'),
+      ...p,
+    },
+  };
+}
+
+export function b1099Extraction(p: Partial<F1099BExtractionT> = {}): Extraction {
+  return {
+    form: 'f1099_b',
+    firstPage: 1,
+    data: {
+      payerName: 'Charles Schwab & Co., Inc.',
+      recipientName: 'Alex Rivera',
+      box4FedWithheld: amt(null),
+      lots: [
+        {
+          description: '100 sh. AAPL',
+          dateAcquired: '01/15/2023',
+          dateSold: '08/20/2025',
+          proceeds: amt('25,000.00'),
+          costBasis: amt('15,000.00'),
+          marketDiscount: amt(null),
+          washSaleDisallowed: amt(null),
+          box: 'D',
+          collectibles: false,
+        },
+      ],
       ...p,
     },
   };

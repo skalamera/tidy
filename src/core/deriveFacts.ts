@@ -19,8 +19,15 @@ export function emptyFacts(): TaxFacts {
     w2s: [],
     f1099Int: [],
     f1099Div: [],
+    f1099B: [],
     f1099R: [],
     ssa1099: [],
+    carryovers: {
+      capitalLossShortTerm: 0,
+      capitalLossLongTerm: 0,
+      qbiLoss: 0,
+      reitPtpLoss: 0,
+    },
     hasNondeductibleIraBasis: null,
     itemized: {
       medicalExpenses: 0,
@@ -116,6 +123,12 @@ export function deriveFacts(state: AppState): TaxFacts {
     if (f.stateReturn.priorYearApplied > 0) {
       f.itemized.stateIncomeTaxPayments.push({ label: '2024 state refund applied to 2025', amount: f.stateReturn.priorYearApplied });
     }
+    f.carryovers = {
+      capitalLossShortTerm: Math.abs(amountCents(prior.carryovers.capitalLossShortTerm)),
+      capitalLossLongTerm: Math.abs(amountCents(prior.carryovers.capitalLossLongTerm)),
+      qbiLoss: prior.carryovers.qbiLoss ? Math.abs(amountCents(prior.carryovers.qbiLoss)) : 0,
+      reitPtpLoss: prior.carryovers.reitPtpLoss ? Math.abs(amountCents(prior.carryovers.reitPtpLoss)) : 0,
+    };
   }
 
   for (const doc of state.documents) {
@@ -188,6 +201,28 @@ export function deriveFacts(state: AppState): TaxFacts {
             box12ExemptInterestDividends: amountCents(d.box12ExemptInterestDividends),
             box13PrivateActivityBondDividends: amountCents(d.box13PrivateActivityBondDividends),
             evidence: { box1aOrdinaryDividends: ev('box1aOrdinaryDividends', d.box1aOrdinaryDividends) },
+          });
+          break;
+        }
+        case 'f1099_b': {
+          const d = x.data;
+          f.f1099B!.push({
+            id,
+            owner: guessOwner(f, d.recipientName, null),
+            payerName: d.payerName,
+            box4FedWithheld: amountCents(d.box4FedWithheld),
+            lots: d.lots.map((l) => ({
+              description: l.description,
+              dateAcquired: l.dateAcquired,
+              dateSold: l.dateSold,
+              proceeds: amountCents(l.proceeds),
+              costBasis: amountCents(l.costBasis),
+              marketDiscount: amountCents(l.marketDiscount),
+              washSaleDisallowed: amountCents(l.washSaleDisallowed),
+              box: l.box,
+              collectibles: l.collectibles,
+            })),
+            evidence: { box4FedWithheld: ev('box4FedWithheld', d.box4FedWithheld) },
           });
           break;
         }

@@ -5,7 +5,6 @@ import type { AppState, Flag } from '../shared/state';
 import { PRIOR_TAX_YEAR } from './deriveFacts';
 
 const LABEL: Record<string, string> = {
-  f1099_b: 'investment sales (1099-B)',
   k1_1065: 'partnership K-1s',
   k1_1120s: 'S corporation K-1s',
   k1_1041: 'trust K-1s',
@@ -16,7 +15,6 @@ const LABEL: Record<string, string> = {
   other: 'this kind of document',
 };
 const PART_LABEL: Record<string, string> = {
-  f1099_b: 'a 1099-B (investment sales)',
   f1099_misc: 'a 1099-MISC',
   f1099_oid: 'a 1099-OID',
   k1: 'a Schedule K-1',
@@ -85,8 +83,7 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       sectionId: 'profile',
       severity: 'blocker',
       title: 'Some of your income needs forms Tidy can’t prepare yet',
-      detail:
-        'Business, rental, and pass-through income, and investment sales, are on the roadmap. Until then this return would leave them out.',
+      detail: 'Business, rental, and pass-through income are on the roadmap. Until then this return would leave them out.',
     });
   }
   if (f.hasNondeductibleIraBasis === true) {
@@ -156,16 +153,7 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       sectionId: 'profile',
       severity: 'blocker',
       title: 'Digital asset sales aren’t supported yet',
-      detail: 'Crypto sales go on Form 8949, which arrives with investment sales support.',
-    });
-  }
-  if (f.f1099Div.some((x) => x.box2bUnrecaptured1250Gain > 0 || x.box2d28RateGain > 0)) {
-    flags.push({
-      id: 'schedule-d',
-      sectionId: 'investments',
-      severity: 'blocker',
-      title: 'Some capital gains need Schedule D',
-      detail: 'A 1099-DIV shows box 2b or 2d amounts, which need Schedule D. That comes with investment sales support.',
+      detail: 'Crypto and digital asset reporting (Form 1099-DA and crypto tax lots) is not supported yet.',
     });
   }
   if (r.mayOweAmt) {
@@ -175,16 +163,6 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       severity: 'blocker',
       title: 'You may owe alternative minimum tax',
       detail: 'Our AMT check can’t rule it out, and Form 6251 isn’t supported yet. A CPA should finish this return.',
-    });
-  }
-  const qbiDividends = sumCents(f.f1099Div.map((x) => x.box5Section199aDividends));
-  if (qbiDividends > 0) {
-    flags.push({
-      id: 'qbi-dividends',
-      sectionId: 'investments',
-      severity: 'warning',
-      title: `Your 1099-DIV shows ${formatUsd(qbiDividends)} of Section 199A dividends`,
-      detail: 'They usually qualify for a 20% deduction (Form 8995) that Tidy doesn’t take yet, so this return may overstate your tax.',
     });
   }
   const foreignTax = sumCents([...f.f1099Int.map((x) => x.box6ForeignTaxPaid), ...f.f1099Div.map((x) => x.box7ForeignTaxPaid)]);

@@ -78,6 +78,14 @@ export const FED_2025 = {
     fifteenRateMax: byStatus(usd(533_400), usd(600_050), usd(300_000), usd(566_700), usd(600_050)),
     rate15: pct('15'),
     rate20: pct('20'),
+    rate25: pct('25'),
+    rate28: pct('28'),
+    capitalLossLimit: byStatus(usd(3_000), usd(3_000), usd(1_500), usd(3_000), usd(3_000)),
+  },
+  /** Form 8995 / 8995-A (2025) — Qualified Business Income / Section 199A REIT Dividends Deduction. */
+  qbi: {
+    rate: pct('20'),
+    threshold: byStatus(usd(197_300), usd(394_600), usd(197_300), usd(197_300), usd(197_300)),
   },
   salt: {
     cap: usd(40_000),

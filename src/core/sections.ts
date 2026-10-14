@@ -46,14 +46,16 @@ export const SECTIONS: SectionDef[] = [
   },
   {
     id: 'investments',
-    title: 'Interest & dividends',
+    title: 'Investments',
     icon: 'TrendingUp',
-    blurb: 'Bank interest and investment dividends.',
+    blurb: 'Interest, dividends, and sales of stocks or funds.',
     snapshot: (f, r) => ({
       i: noEvidence(f.f1099Int),
       d: noEvidence(f.f1099Div),
+      b: noEvidence(f.f1099B ?? []),
+      c: f.carryovers ?? null,
       fa: f.foreignAccounts,
-      l: lines(r, ['f1040.2b', 'f1040.3a', 'f1040.3b', 'f1040.7a']),
+      l: lines(r, ['f1040.2b', 'f1040.3a', 'f1040.3b', 'f1040.7a', 'schD.7', 'schD.15', 'schD.16']),
     }),
   },
   {
@@ -61,7 +63,7 @@ export const SECTIONS: SectionDef[] = [
     title: 'Deductions',
     icon: 'HandCoins',
     blurb: 'Standard deduction or itemizing, whichever saves more.',
-    snapshot: (f, r) => ({ it: f.itemized, l: lines(r, ['schA.5e', 'schA.17', 'f1040.12e', 'f1040.13b', 'f1040.14']) }),
+    snapshot: (f, r) => ({ it: f.itemized, l: lines(r, ['schA.5e', 'schA.17', 'f1040.12e', 'f1040.13a', 'f1040.13b', 'f1040.14']) }),
   },
   {
     id: 'payments',

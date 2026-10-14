@@ -7,7 +7,7 @@ import { FEDERAL_MAPS } from '../../src/main/pdf/maps/federal2025';
 import { federalValues, fillPdf, fitRows, formAmount, namesOnReturn } from '../../src/main/pdf/fill';
 import { buildPackage, filingSteps } from '../../src/main/pdf/package';
 import { usd } from '../../src/engine/money';
-import { facts, r1099, S1, S2, ssa1099, w2 } from '../fixtures/facts';
+import { div1099, facts, r1099, S1, S2, ssa1099, w2 } from '../fixtures/facts';
 import { doc, priorYear, stateWith, w2Extraction } from '../fixtures/state';
 
 const read = (rel: string) => readFile(path.join(process.cwd(), 'resources', rel));
@@ -103,6 +103,81 @@ describe('fillPdf', () => {
     expect(get1A('sch1A.36b')).toBe('6,000');
     expect(get1A('sch1A.37')).toBe('12,000');
     expect(get1A('sch1A.38')).toBe('12,000');
+  });
+
+  it('fills Schedule D, Form 8949, and Form 8995', async () => {
+    const inv = facts({
+      filingStatus: 'mfj',
+      spouse: { firstName: 'Sam', lastName: 'Rivera', ssn: '400000002', dateOfBirth: '1982-02-02' },
+      w2s: [w2({ box1Wages: usd(150_000) })],
+      f1099Div: [
+        div1099({ box1aOrdinaryDividends: usd(10_000), box1bQualifiedDividends: usd(5_000), box5Section199aDividends: usd(4_000) }),
+      ],
+      f1099B: [
+        {
+          id: 'b-1',
+          owner: 'taxpayer',
+          payerName: 'Schwab',
+          box4FedWithheld: 0,
+          lots: [
+            {
+              description: '50 sh. MSFT',
+              dateAcquired: '02/01/2025',
+              dateSold: '07/01/2025',
+              proceeds: usd(9_000),
+              costBasis: usd(10_000),
+              marketDiscount: 0,
+              washSaleDisallowed: usd(400),
+              box: 'A',
+            },
+            {
+              description: '100 sh. AAPL',
+              dateAcquired: '01/15/2022',
+              dateSold: '09/15/2025',
+              proceeds: usd(30_000),
+              costBasis: usd(18_000),
+              marketDiscount: 0,
+              washSaleDisallowed: 0,
+              box: 'E',
+            },
+          ],
+          evidence: {},
+        },
+      ],
+      carryovers: { capitalLossShortTerm: usd(1_000), capitalLossLongTerm: usd(2_000), qbiLoss: 0, reitPtpLoss: 0 },
+    });
+    const r = computeFederal(inv);
+    const filledD = await fillPdf(await read(FEDERAL_MAPS.schD.template), FEDERAL_MAPS.schD, federalValues('schD', inv, r).values);
+    const getD = (key: string) => filledD.getForm().getTextField(FEDERAL_MAPS.schD.text[key]).getText();
+    expect(getD('schD.1b.d')).toBe('9,000');
+    expect(getD('schD.1b.g')).toBe('400');
+    expect(getD('schD.1b.h')).toBe('(600)');
+    expect(getD('schD.6')).toBe('1,000');
+    expect(getD('schD.7')).toBe('(1,600)');
+    expect(getD('schD.9.h')).toBe('12,000');
+    expect(getD('schD.14')).toBe('2,000');
+    expect(getD('schD.15')).toBe('10,000');
+    expect(getD('schD.16')).toBe('8,400');
+    expect(filledD.getForm().getCheckBox(FEDERAL_MAPS.schD.checks.qofNo).isChecked()).toBe(true);
+    expect(filledD.getForm().getCheckBox(FEDERAL_MAPS.schD.checks.line17Yes).isChecked()).toBe(true);
+    expect(filledD.getForm().getCheckBox(FEDERAL_MAPS.schD.checks.line20Yes).isChecked()).toBe(true);
+
+    const filled8949 = await fillPdf(await read(FEDERAL_MAPS.f8949.template), FEDERAL_MAPS.f8949, federalValues('f8949', inv, r).values);
+    const get8949 = (key: string) => filled8949.getForm().getTextField(FEDERAL_MAPS.f8949.text[key]).getText();
+    expect(get8949('p1.r0.a')).toBe('50 sh. MSFT');
+    expect(get8949('p1.r0.f')).toBe('W');
+    expect(get8949('p1.r0.g')).toBe('400');
+    expect(get8949('p1.total.h')).toBe('(600)');
+    expect(get8949('p2.r0.a')).toBe('100 sh. AAPL');
+    expect(get8949('p2.total.h')).toBe('12,000');
+    expect(filled8949.getForm().getCheckBox(FEDERAL_MAPS.f8949.checks.boxA).isChecked()).toBe(true);
+    expect(filled8949.getForm().getCheckBox(FEDERAL_MAPS.f8949.checks.boxE).isChecked()).toBe(true);
+
+    const filled8995 = await fillPdf(await read(FEDERAL_MAPS.f8995.template), FEDERAL_MAPS.f8995, federalValues('f8995', inv, r).values);
+    const get8995 = (key: string) => filled8995.getForm().getTextField(FEDERAL_MAPS.f8995.text[key]).getText();
+    expect(get8995('f8995.6')).toBe('4,000');
+    expect(get8995('f8995.9')).toBe('800');
+    expect(get8995('f8995.15')).toBe('800');
   });
 
   it('refuses unknown keys', async () => {

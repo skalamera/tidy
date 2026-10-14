@@ -125,6 +125,56 @@ export interface Ssa1099 {
   evidence: Record<string, Evidence>;
 }
 
+/** Form 8949 / 1099-B reporting category:
+ *  A/D = short/long-term with basis reported to the IRS (covered);
+ *  B/E = short/long-term with basis NOT reported to the IRS (noncovered);
+ *  C/F = short/long-term not reported on Form 1099-B. */
+export type Form8949Box = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+export interface CapitalLot {
+  description: string;
+  /** Date acquired (MM/DD/YYYY or "VARIOUS"). */
+  dateAcquired: string | null;
+  /** Date sold or disposed of (MM/DD/YYYY). */
+  dateSold: string | null;
+  /** Box 1d: Proceeds (sales price). */
+  proceeds: Cents;
+  /** Box 1e: Cost or other basis. */
+  costBasis: Cents;
+  /** Box 1f: Accrued market discount. */
+  marketDiscount: Cents;
+  /** Box 1g: Wash sale loss disallowed. */
+  washSaleDisallowed: Cents;
+  /** Form 8949 box (A/B/C short-term, D/E/F long-term). */
+  box: Form8949Box;
+  /** Optional explicit Form 8949 column (f) code(s), e.g. "W", "B", "M". Inferred automatically for wash sales / market discount when omitted. */
+  adjustmentCode?: string;
+  /** Optional explicit Form 8949 column (g) adjustment in cents (signed). Inferred from washSaleDisallowed - marketDiscount when omitted. */
+  adjustmentAmount?: Cents;
+  /** True if box 2 "Collectibles" is checked on Form 1099-B (28% rate gain/loss). */
+  collectibles?: boolean;
+}
+
+export interface Form1099B {
+  id: string;
+  owner: Owner;
+  payerName: string;
+  box4FedWithheld: Cents;
+  lots: CapitalLot[];
+  evidence: Record<string, Evidence>;
+}
+
+export interface Carryovers {
+  /** Positive magnitude of short-term capital loss carryover from 2024 to 2025 (Schedule D line 6). */
+  capitalLossShortTerm: Cents;
+  /** Positive magnitude of long-term capital loss carryover from 2024 to 2025 (Schedule D line 14). */
+  capitalLossLongTerm: Cents;
+  /** Positive magnitude of qualified business net loss carryforward from 2024 (Form 8995 line 3). */
+  qbiLoss: Cents;
+  /** Positive magnitude of qualified REIT dividends / PTP loss carryforward from 2024 (Form 8995 line 7 / 8995-A line 29). */
+  reitPtpLoss: Cents;
+}
+
 export interface ItemizedInputs {
   medicalExpenses: Cents;
   /** State/local income tax PAID during the calendar year beyond W-2 withholding: estimated payments
@@ -177,8 +227,10 @@ export interface TaxFacts {
   w2s: W2[];
   f1099Int: Form1099Int[];
   f1099Div: Form1099Div[];
+  f1099B?: Form1099B[];
   f1099R?: Form1099R[];
   ssa1099?: Ssa1099[];
+  carryovers?: Carryovers;
   /** True if taxpayer or spouse has nondeductible traditional IRA basis (requires Form 8606 on traditional IRA distributions). */
   hasNondeductibleIraBasis?: boolean | null;
   itemized: ItemizedInputs;

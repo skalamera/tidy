@@ -283,4 +283,196 @@ const f8960: FormMap = {
   checks: {},
 };
 
-export const FEDERAL_MAPS: Record<FederalFormId, FormMap> = { f1040, sch1A, sch2, sch3, schA, schB, f8959, f8960 };
+const schD: FormMap = {
+  template: 'forms/2025/f1040sd.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(P1, {
+      name: 'f1_1[0]',
+      ssn: 'f1_2[0]',
+      'schD.1a.d': 'Table_PartI[0].Row1a[0].f1_3[0]',
+      'schD.1a.e': 'Table_PartI[0].Row1a[0].f1_4[0]',
+      'schD.1a.h': 'Table_PartI[0].Row1a[0].f1_6[0]',
+      'schD.1b.d': 'Table_PartI[0].Row1b[0].f1_7[0]',
+      'schD.1b.e': 'Table_PartI[0].Row1b[0].f1_8[0]',
+      'schD.1b.g': 'Table_PartI[0].Row1b[0].f1_9[0]',
+      'schD.1b.h': 'Table_PartI[0].Row1b[0].f1_10[0]',
+      'schD.2.d': 'Table_PartI[0].Row2[0].f1_11[0]',
+      'schD.2.e': 'Table_PartI[0].Row2[0].f1_12[0]',
+      'schD.2.g': 'Table_PartI[0].Row2[0].f1_13[0]',
+      'schD.2.h': 'Table_PartI[0].Row2[0].f1_14[0]',
+      'schD.3.d': 'Table_PartI[0].Row3[0].f1_15[0]',
+      'schD.3.e': 'Table_PartI[0].Row3[0].f1_16[0]',
+      'schD.3.g': 'Table_PartI[0].Row3[0].f1_17[0]',
+      'schD.3.h': 'Table_PartI[0].Row3[0].f1_18[0]',
+      'schD.4': 'f1_19[0]',
+      'schD.5': 'f1_20[0]',
+      'schD.6': 'f1_21[0]',
+      'schD.7': 'f1_22[0]',
+      'schD.8a.d': 'Table_PartII[0].Row8a[0].f1_23[0]',
+      'schD.8a.e': 'Table_PartII[0].Row8a[0].f1_24[0]',
+      'schD.8a.h': 'Table_PartII[0].Row8a[0].f1_26[0]',
+      'schD.8b.d': 'Table_PartII[0].Row8b[0].f1_27[0]',
+      'schD.8b.e': 'Table_PartII[0].Row8b[0].f1_28[0]',
+      'schD.8b.g': 'Table_PartII[0].Row8b[0].f1_29[0]',
+      'schD.8b.h': 'Table_PartII[0].Row8b[0].f1_30[0]',
+      'schD.9.d': 'Table_PartII[0].Row9[0].f1_31[0]',
+      'schD.9.e': 'Table_PartII[0].Row9[0].f1_32[0]',
+      'schD.9.g': 'Table_PartII[0].Row9[0].f1_33[0]',
+      'schD.9.h': 'Table_PartII[0].Row9[0].f1_34[0]',
+      'schD.10.d': 'Table_PartII[0].Row10[0].f1_35[0]',
+      'schD.10.e': 'Table_PartII[0].Row10[0].f1_36[0]',
+      'schD.10.g': 'Table_PartII[0].Row10[0].f1_37[0]',
+      'schD.10.h': 'Table_PartII[0].Row10[0].f1_38[0]',
+      'schD.11': 'f1_39[0]',
+      'schD.12': 'f1_40[0]',
+      'schD.13': 'f1_41[0]',
+      'schD.14': 'f1_42[0]',
+      'schD.15': 'f1_43[0]',
+    }),
+    ...at(P2, {
+      'schD.16': 'f2_1[0]',
+      'schD.18': 'f2_2[0]',
+      'schD.19': 'f2_3[0]',
+      'schD.21': 'f2_4[0]',
+    }),
+  },
+  checks: {
+    ...at(P1, {
+      qofYes: 'c1_1[0]',
+      qofNo: 'c1_1[1]',
+    }),
+    ...at(P2, {
+      line17Yes: 'c2_1[0]',
+      line17No: 'c2_1[1]',
+      line20Yes: 'c2_2[0]',
+      line20No: 'c2_2[1]',
+      line22Yes: 'c2_3[0]',
+      line22No: 'c2_3[1]',
+    }),
+  },
+};
+
+const f8949RowFields = (part: 1 | 2) => {
+  const pagePrefix = part === 1 ? P1 : P2;
+  const fPrefix = part === 1 ? 'f1' : 'f2';
+  const tableName = `Table_Line1_Part${part}[0]`;
+  const entries: [string, string][] = [];
+  for (let r = 0; r < 11; r++) {
+    const base = 3 + r * 8;
+    const rowPath = `${pagePrefix}${tableName}.Row${r + 1}[0].`;
+    const cols = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
+    cols.forEach((col, cIdx) => {
+      entries.push([`p${part}.r${r}.${col}`, `${rowPath}${fPrefix}_${num(base + cIdx)}[0]`]);
+    });
+  }
+  return Object.fromEntries(entries);
+};
+
+export const F8949_ROWS_PER_PAGE = 11;
+
+const f8949: FormMap = {
+  template: 'forms/2025/f8949.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(P1, {
+      name: 'f1_01[0]',
+      ssn: 'f1_02[0]',
+      'p1.total.d': 'f1_91[0]',
+      'p1.total.e': 'f1_92[0]',
+      'p1.total.g': 'f1_94[0]',
+      'p1.total.h': 'f1_95[0]',
+    }),
+    ...f8949RowFields(1),
+    ...at(P2, {
+      name2: 'f2_01[0]',
+      ssn2: 'f2_02[0]',
+      'p2.total.d': 'f2_91[0]',
+      'p2.total.e': 'f2_92[0]',
+      'p2.total.g': 'f2_94[0]',
+      'p2.total.h': 'f2_95[0]',
+    }),
+    ...f8949RowFields(2),
+  },
+  checks: {
+    ...at(P1, {
+      boxA: 'c1_1[0]',
+      boxB: 'c1_1[1]',
+      boxC: 'c1_1[2]',
+    }),
+    ...at(P2, {
+      boxD: 'c2_1[0]',
+      boxE: 'c2_1[1]',
+      boxF: 'c2_1[2]',
+    }),
+  },
+};
+
+const f8995: FormMap = {
+  template: 'forms/2025/f8995.pdf',
+  numbers: 'irs',
+  text: at(P1, {
+    name: 'f1_01[0]',
+    ssn: 'f1_02[0]',
+    'f8995.2': 'Line2_ReadOrder[0].f1_18[0]',
+    'f8995.3': 'f1_19[0]',
+    'f8995.4': 'f1_20[0]',
+    'f8995.5': 'f1_21[0]',
+    'f8995.6': 'Line6_ReadOrder[0].f1_22[0]',
+    'f8995.7': 'f1_23[0]',
+    'f8995.8': 'f1_24[0]',
+    'f8995.9': 'f1_25[0]',
+    'f8995.10': 'f1_26[0]',
+    'f8995.11': 'f1_27[0]',
+    'f8995.12': 'f1_28[0]',
+    'f8995.13': 'f1_29[0]',
+    'f8995.14': 'f1_30[0]',
+    'f8995.15': 'f1_31[0]',
+    'f8995.16': 'f1_32[0]',
+    'f8995.17': 'f1_33[0]',
+  }),
+  checks: {},
+};
+
+const f8995a: FormMap = {
+  template: 'forms/2025/f8995a.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(P1, {
+      name: 'f1_01[0]',
+      ssn: 'f1_02[0]',
+    }),
+    ...at(P2, {
+      'f8995a.27': 'f2_36[0]',
+      'f8995a.28': 'f2_37[0]',
+      'f8995a.29': 'f2_38[0]',
+      'f8995a.30': 'f2_39[0]',
+      'f8995a.31': 'f2_40[0]',
+      'f8995a.32': 'f2_41[0]',
+      'f8995a.33': 'f2_42[0]',
+      'f8995a.34': 'f2_43[0]',
+      'f8995a.35': 'f2_44[0]',
+      'f8995a.36': 'f2_45[0]',
+      'f8995a.37': 'f2_46[0]',
+      'f8995a.38': 'f2_47[0]',
+      'f8995a.39': 'f2_48[0]',
+      'f8995a.40': 'f2_49[0]',
+    }),
+  },
+  checks: {},
+};
+
+export const FEDERAL_MAPS: Record<FederalFormId, FormMap> = {
+  f1040,
+  sch1A,
+  sch2,
+  sch3,
+  schA,
+  schB,
+  schD,
+  f8949,
+  f8995,
+  f8995a,
+  f8959,
+  f8960,
+};
