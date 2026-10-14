@@ -9,7 +9,6 @@ const LABEL: Record<string, string> = {
   k1_1120s: 'S corporation K-1s',
   k1_1041: 'trust K-1s',
   f1099_misc: '1099-MISC income',
-  f1099_nec: '1099-NEC income',
   prior_year_state_return: 'a state return on its own',
   brokerage_statement: 'brokerage statements',
   other: 'this kind of document',
@@ -83,7 +82,7 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       sectionId: 'profile',
       severity: 'blocker',
       title: 'Some of your income needs forms Tidy can’t prepare yet',
-      detail: 'Business, rental, and pass-through income are on the roadmap. Until then this return would leave them out.',
+      detail: 'Rental and pass-through income (Schedule E and K-1s) are on the roadmap. Until then this return would leave them out.',
     });
   }
   if (f.hasNondeductibleIraBasis === true) {

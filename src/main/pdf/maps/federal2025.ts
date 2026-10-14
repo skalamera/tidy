@@ -108,6 +108,34 @@ const f1040: FormMap = {
   },
 };
 
+const sch1: FormMap = {
+  template: 'forms/2025/f1040s1.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(P1, {
+      name: 'f1_01[0]',
+      ssn: 'f1_02[0]',
+      'sch1.1': 'f1_04[0]',
+      'sch1.3': 'f1_07[0]',
+      'sch1.4': 'f1_08[0]',
+      'sch1.5': 'f1_09[0]',
+      'sch1.9': 'f1_37[0]',
+      'sch1.10': 'f1_38[0]',
+    }),
+    ...at(P2, {
+      'sch1.15': 'f2_05[0]',
+      'sch1.16': 'f2_06[0]',
+      'sch1.17': 'f2_07[0]',
+      'sch1.25': 'f2_29[0]',
+      'sch1.26': 'f2_30[0]',
+    }),
+  },
+  checks: at(P1, {
+    form4797: 'c1_1[0]',
+    form4684: 'c1_2[0]',
+  }),
+};
+
 const sch1A: FormMap = {
   template: 'forms/2025/f1040s1a.pdf',
   numbers: 'irs',
@@ -143,6 +171,7 @@ const sch2: FormMap = {
       ssn: 'f1_02[0]',
       'sch2.2': 'f1_12[0]',
       'sch2.3': 'f1_13[0]',
+      'sch2.4': 'Line4_ReadOrder[0].f1_14[0]',
       'sch2.11': 'f1_22[0]',
       'sch2.12': 'f1_23[0]',
     }),
@@ -462,17 +491,255 @@ const f8995a: FormMap = {
   checks: {},
 };
 
+const schC: FormMap = {
+  template: 'forms/2025/f1040sc.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(P1, {
+      name: 'f1_1[0]',
+      ssn: 'f1_2[0]',
+      principalBusiness: 'f1_3[0]',
+      businessCode: 'BComb[0].f1_4[0]',
+      businessName: 'f1_5[0]',
+      ein: 'DComb[0].f1_6[0]',
+      street: 'f1_7[0]',
+      cityStateZip: 'f1_8[0]',
+      'schC.1': 'f1_10[0]',
+      'schC.2': 'f1_11[0]',
+      'schC.3': 'f1_12[0]',
+      'schC.4': 'f1_13[0]',
+      'schC.5': 'f1_14[0]',
+      'schC.6': 'f1_15[0]',
+      'schC.7': 'f1_16[0]',
+      'schC.8': 'Lines8-17[0].f1_17[0]',
+      'schC.9': 'Lines8-17[0].f1_18[0]',
+      'schC.10': 'Lines8-17[0].f1_19[0]',
+      'schC.11': 'Lines8-17[0].f1_20[0]',
+      'schC.12': 'Lines8-17[0].f1_21[0]',
+      'schC.13': 'Lines8-17[0].f1_22[0]',
+      'schC.14': 'Lines8-17[0].f1_23[0]',
+      'schC.15': 'Lines8-17[0].f1_24[0]',
+      'schC.16a': 'Lines8-17[0].f1_25[0]',
+      'schC.16b': 'Lines8-17[0].f1_26[0]',
+      'schC.17': 'Lines8-17[0].f1_27[0]',
+      'schC.18': 'Lines18-27[0].f1_28[0]',
+      'schC.19': 'Lines18-27[0].f1_29[0]',
+      'schC.20a': 'Lines18-27[0].f1_30[0]',
+      'schC.20b': 'Lines18-27[0].f1_31[0]',
+      'schC.21': 'Lines18-27[0].f1_32[0]',
+      'schC.22': 'Lines18-27[0].f1_33[0]',
+      'schC.23': 'Lines18-27[0].f1_34[0]',
+      'schC.24a': 'Lines18-27[0].f1_35[0]',
+      'schC.24b': 'Lines18-27[0].f1_36[0]',
+      'schC.25': 'Lines18-27[0].f1_37[0]',
+      'schC.26': 'Lines18-27[0].f1_38[0]',
+      'schC.27a': 'Lines18-27[0].f1_40[0]',
+      'schC.27b': 'Lines18-27[0].f1_39[0]',
+      'schC.28': 'f1_41[0]',
+      'schC.29': 'f1_42[0]',
+      simplifiedTotalSqFt: 'Line30_ReadOrder[0].f1_43[0]',
+      simplifiedBusinessSqFt: 'Line30_ReadOrder[0].f1_44[0]',
+      'schC.30': 'f1_45[0]',
+      'schC.31': 'f1_46[0]',
+    }),
+    ...at(P2, {
+      ...Object.fromEntries(
+        Array.from({ length: 9 }, (_, i) => [
+          [`otherExp.${i}.desc`, `PartVTable[0].Item${i + 1}[0].f2_${15 + 2 * i}[0]`],
+          [`otherExp.${i}.amt`, `PartVTable[0].Item${i + 1}[0].f2_${16 + 2 * i}[0]`],
+        ]).flat(),
+      ),
+      'schC.48': 'f2_33[0]',
+    }),
+  },
+  checks: at(P1, {
+    accountingCash: 'c1_1[0]',
+    materialParticipationYes: 'c1_2[0]',
+    payments1099No: 'c1_4[1]',
+    allAtRisk: 'c1_7[0]',
+  }),
+};
+
+const schSE: FormMap = {
+  template: 'forms/2025/f1040sse.pdf',
+  numbers: 'irs',
+  pages: [0],
+  text: at(P1, {
+    name: 'f1_1[0]',
+    ssn: 'f1_2[0]',
+    'schSE.2': 'f1_5[0]',
+    'schSE.3': 'f1_6[0]',
+    'schSE.4a': 'f1_7[0]',
+    'schSE.4c': 'f1_9[0]',
+    'schSE.6': 'f1_12[0]',
+    'schSE.8a': 'Line8a_ReadOrder[0].f1_14[0]',
+    'schSE.8d': 'f1_17[0]',
+    'schSE.9': 'f1_18[0]',
+    'schSE.10': 'f1_19[0]',
+    'schSE.11': 'f1_20[0]',
+    'schSE.12': 'f1_21[0]',
+    'schSE.13': 'f1_22[0]',
+  }),
+  checks: {},
+};
+
+const f4797RowFields = (table: 'TableLine2' | 'TableLine10', prefix: 'p1' | 'p2', firstFieldNum: number) => {
+  const cols = ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const;
+  const entries: [string, string][] = [];
+  for (let r = 0; r < 4; r++) {
+    const base = firstFieldNum + r * 7;
+    const rowPath = `${P1}${table}[0].Row${r + 1}[0].`;
+    cols.forEach((col, cIdx) => {
+      entries.push([`${prefix}.r${r}.${col}`, `${rowPath}f1_${base + cIdx}[0]`]);
+    });
+  }
+  return Object.fromEntries(entries);
+};
+
+const f4797Part3Fields = () => {
+  const entries: [string, string][] = [];
+  for (let c = 0; c < 4; c++) {
+    const rowPath = `${P2}PartIIITable1[0].Row${c + 1}[0].`;
+    entries.push([`p3.c${c}.desc`, `${rowPath}f2_${1 + c * 3}[0]`]);
+    entries.push([`p3.c${c}.acq`, `${rowPath}f2_${2 + c * 3}[0]`]);
+    entries.push([`p3.c${c}.sold`, `${rowPath}f2_${3 + c * 3}[0]`]);
+    entries.push([`p3.c${c}.20`, `${P2}PartIIITable2[0].Row20[0].f2_${13 + c}[0]`]);
+    entries.push([`p3.c${c}.21`, `${P2}PartIIITable2[0].Row21[0].f2_${17 + c}[0]`]);
+    entries.push([`p3.c${c}.22`, `${P2}PartIIITable2[0].Row22[0].f2_${21 + c}[0]`]);
+    entries.push([`p3.c${c}.23`, `${P2}PartIIITable2[0].Row23[0].f2_${25 + c}[0]`]);
+    entries.push([`p3.c${c}.24`, `${P2}PartIIITable2[0].Row24[0].f2_${29 + c}[0]`]);
+    entries.push([`p3.c${c}.25a`, `${P2}PartIIITable2[0].Row25a[0].f2_${33 + c}[0]`]);
+    entries.push([`p3.c${c}.25b`, `${P2}PartIIITable2[0].Row25b[0].f2_${37 + c}[0]`]);
+  }
+  return Object.fromEntries(entries);
+};
+
+const f4797: FormMap = {
+  template: 'forms/2025/f4797.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(P1, {
+      name: 'f1_1[0]',
+      ssn: 'f1_2[0]',
+      'f4797.6': 'f1_37[0]',
+      'f4797.7': 'f1_38[0]',
+      'f4797.8': 'f1_39[0]',
+      'f4797.9': 'f1_40[0]',
+      'f4797.11': 'f1_69[0]',
+      'f4797.12': 'f1_70[0]',
+      'f4797.13': 'f1_71[0]',
+      'f4797.17': 'f1_75[0]',
+      'f4797.18b': 'f1_77[0]',
+    }),
+    ...f4797RowFields('TableLine2', 'p1', 6),
+    ...f4797RowFields('TableLine10', 'p2', 41),
+    ...f4797Part3Fields(),
+    ...at(P2, {
+      'f4797.30': 'f2_97[0]',
+      'f4797.31': 'f2_98[0]',
+      'f4797.32': 'f2_99[0]',
+      'f4797.33a': 'PartIVTable[0].Row33[0].f2_100[0]',
+      'f4797.34a': 'PartIVTable[0].Row34[0].f2_102[0]',
+      'f4797.35a': 'PartIVTable[0].Row35[0].f2_104[0]',
+    }),
+  },
+  checks: {},
+};
+
+const f8829: FormMap = {
+  template: 'forms/2025/f8829.pdf',
+  numbers: 'irs',
+  text: at(P1, {
+    name: 'f1_01[0]',
+    ssn: 'f1_02[0]',
+    'f8829.1': 'f1_03[0]',
+    'f8829.2': 'f1_04[0]',
+    pct3: 'f1_05[0]',
+    pct7: 'f1_09[0]',
+    'f8829.8': 'Line8_ReadOrder[0].f1_10[0]',
+    'f8829.10a': 'Table_Lines9-12[0].Line10[0].f1_13[0]',
+    'f8829.10b': 'Table_Lines9-12[0].Line10[0].f1_14[0]',
+    'f8829.11a': 'Table_Lines9-12[0].Line11[0].f1_15[0]',
+    'f8829.11b': 'Table_Lines9-12[0].Line11[0].f1_16[0]',
+    'f8829.12a': 'Table_Lines9-12[0].Line12[0].f1_17[0]',
+    'f8829.12b': 'Table_Lines9-12[0].Line12[0].f1_18[0]',
+    'f8829.13': 'f1_19[0]',
+    'f8829.14': 'f1_20[0]',
+    'f8829.15': 'f1_21[0]',
+    'f8829.18a': 'Table_Lines16-23[0].Line18[0].f1_26[0]',
+    'f8829.18b': 'Table_Lines16-23[0].Line18[0].f1_27[0]',
+    'f8829.19a': 'Table_Lines16-23[0].Line19[0].f1_28[0]',
+    'f8829.19b': 'Table_Lines16-23[0].Line19[0].f1_29[0]',
+    'f8829.20a': 'Table_Lines16-23[0].Line20[0].f1_30[0]',
+    'f8829.20b': 'Table_Lines16-23[0].Line20[0].f1_31[0]',
+    'f8829.21a': 'Table_Lines16-23[0].Line21[0].f1_32[0]',
+    'f8829.21b': 'Table_Lines16-23[0].Line21[0].f1_33[0]',
+    'f8829.22a': 'Table_Lines16-23[0].Line22[0].f1_34[0]',
+    'f8829.22b': 'Table_Lines16-23[0].Line22[0].f1_35[0]',
+    'f8829.23a': 'Table_Lines16-23[0].Line23[0].f1_36[0]',
+    'f8829.23b': 'Table_Lines16-23[0].Line23[0].f1_37[0]',
+    'f8829.24': 'f1_38[0]',
+    'f8829.25': 'f1_39[0]',
+    'f8829.26': 'f1_40[0]',
+    'f8829.27': 'f1_41[0]',
+    'f8829.28': 'f1_42[0]',
+    'f8829.30': 'f1_44[0]',
+    'f8829.31': 'f1_45[0]',
+    'f8829.32': 'f1_46[0]',
+    'f8829.33': 'f1_47[0]',
+    'f8829.34': 'f1_48[0]',
+    'f8829.36': 'f1_50[0]',
+    'f8829.37': 'f1_51[0]',
+    'f8829.38': 'f1_52[0]',
+    'f8829.39': 'f1_53[0]',
+    'f8829.40': 'f1_54[0]',
+    pct41: 'f1_55[0]',
+    'f8829.42': 'f1_56[0]',
+    'f8829.43': 'f1_57[0]',
+    'f8829.44': 'f1_58[0]',
+  }),
+  checks: {},
+};
+
+const f7206: FormMap = {
+  template: 'forms/2025/f7206.pdf',
+  numbers: 'irs',
+  text: at(P1, {
+    name: 'f1_1[0]',
+    ssn: 'f1_2[0]',
+    'f7206.1': 'f1_3[0]',
+    'f7206.2': 'f1_4[0]',
+    'f7206.3': 'f1_5[0]',
+    'f7206.4': 'f1_6[0]',
+    'f7206.5': 'f1_7[0]',
+    ratio6: 'f1_8[0]',
+    'f7206.7': 'f1_9[0]',
+    'f7206.8': 'f1_10[0]',
+    'f7206.9': 'f1_11[0]',
+    'f7206.10': 'f1_12[0]',
+    'f7206.13': 'f1_15[0]',
+    'f7206.14': 'f1_16[0]',
+  }),
+  checks: {},
+};
+
 export const FEDERAL_MAPS: Record<FederalFormId, FormMap> = {
   f1040,
+  sch1,
   sch1A,
   sch2,
   sch3,
   schA,
   schB,
+  schC,
   schD,
   f8949,
+  schSE,
+  f4797,
   f8995,
   f8995a,
   f8959,
   f8960,
+  f8829,
+  f7206,
 };

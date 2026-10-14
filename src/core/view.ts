@@ -77,6 +77,7 @@ const KIND: Record<string, string> = {
   f1099_div: '1099-DIV',
   f1099_b: '1099-B',
   f1099_r: '1099-R',
+  f1099_nec: '1099-NEC',
   ssa_1099: 'SSA-1099',
   f1099_composite: 'Brokerage 1099',
   f1098: 'Mortgage interest (1098)',
@@ -89,6 +90,7 @@ const FORM_NAME: Record<string, string> = {
   f1099_int: '1099-INT',
   f1099_div: '1099-DIV',
   f1099_r: '1099-R',
+  f1099_nec: '1099-NEC',
   ssa_1099: 'SSA-1099',
   f1099_b: '1099-B',
   k1: 'K-1',
@@ -97,17 +99,23 @@ const FORM_NAME: Record<string, string> = {
 
 const FORM_NAME_BY_ID: Record<string, string> = {
   f1040: 'Form 1040',
+  sch1: 'Schedule 1',
   sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
   sch3: 'Schedule 3',
   schA: 'Schedule A',
   schB: 'Schedule B',
+  schC: 'Schedule C',
   schD: 'Schedule D',
   f8949: 'Form 8949',
+  schSE: 'Schedule SE',
+  f4797: 'Form 4797',
   f8995: 'Form 8995',
   f8995a: 'Form 8995-A',
   f8959: 'Form 8959',
   f8960: 'Form 8960',
+  f8829: 'Form 8829',
+  f7206: 'Form 7206',
   md502: 'Maryland Form 502',
   md502r: 'Maryland Form 502R',
   md502su: 'Maryland Form 502SU',
@@ -277,12 +285,49 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
         money('Federal tax withheld (box 6)', ssa.box6FedWithheld, { source: ssa.evidence.box6FedWithheld ?? null }),
       ],
     })),
+    ...(f.f1099Nec ?? []).map((nec) => ({
+      id: nec.id,
+      title: nec.payerName,
+      subtitle: `${nec.owner === 'spouse' ? 'Spouse’s' : 'Your'} 1099-NEC`,
+      rows: [
+        money('Nonemployee compensation (box 1)', nec.box1NonemployeeCompensation, {
+          source: nec.evidence.box1NonemployeeCompensation ?? null,
+        }),
+        ...(nec.box4FedWithheld > 0
+          ? [money('Federal tax withheld (box 4)', nec.box4FedWithheld, { source: nec.evidence.box4FedWithheld ?? null })]
+          : []),
+      ],
+    })),
+    ...(r.business.needsScheduleC
+      ? [
+          {
+            id: 'sch-c',
+            title: r.business.activeBusiness?.businessName || r.business.activeBusiness?.principalBusiness || 'Schedule C Business',
+            subtitle: 'Schedule C · Profit or Loss From Business',
+            rows: [
+              line(r, 'schC.7', 'Gross business income'),
+              line(r, 'schC.28', 'Operating expenses'),
+              ...(r.ledger.get('schC.30') > 0 ? [line(r, 'schC.30', 'Business use of home')] : []),
+              line(r, 'schC.31', 'Net profit or (loss)'),
+              ...(r.business.needsForm4797 ? [line(r, 'sch1.4', 'Sale or abandonment of business assets (Form 4797)')] : []),
+              ...(r.business.seTax > 0
+                ? [line(r, 'schSE.12', 'Self-employment tax (Schedule SE)'), line(r, 'sch1.15', 'Deductible half of self-employment tax')]
+                : []),
+              ...(r.business.sepDeduction > 0 ? [line(r, 'sch1.16', 'Self-employed SEP / retirement plan deduction')] : []),
+              ...(r.business.seHealthInsuranceDeduction > 0
+                ? [line(r, 'sch1.17', 'Self-employed health insurance deduction (Form 7206)')]
+                : []),
+            ],
+          },
+        ]
+      : []),
     {
       id: 'wage-totals',
       title: 'Totals',
       subtitle: null,
       rows: [
         line(r, 'f1040.1z', 'Total wages'),
+        ...(r.business.needsScheduleC ? [line(r, 'sch1.3', 'Net business profit or (loss) (Schedule C)')] : []),
         ...(r.ledger.get('f1040.4a') > 0 ? [line(r, 'f1040.4b', 'Taxable IRA distributions')] : []),
         ...(r.ledger.get('f1040.5a') > 0 ? [line(r, 'f1040.5b', 'Taxable pensions and annuities')] : []),
         ...(r.ledger.get('f1040.6a') > 0 ? [line(r, 'f1040.6b', 'Taxable Social Security benefits')] : []),

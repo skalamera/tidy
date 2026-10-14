@@ -6,6 +6,7 @@ import type {
   F1099BExtractionT,
   F1099DivExtractionT,
   F1099IntExtractionT,
+  F1099NecExtractionT,
   F1099RExtractionT,
   PaymentExtractionT,
   PriorYearExtractionT,
@@ -44,6 +45,7 @@ export type Extraction = { firstPage: number } & (
   | { form: 'f1099_div'; data: F1099DivExtractionT }
   | { form: 'f1099_b'; data: F1099BExtractionT }
   | { form: 'f1099_r'; data: F1099RExtractionT }
+  | { form: 'f1099_nec'; data: F1099NecExtractionT }
   | { form: 'ssa_1099'; data: Ssa1099ExtractionT }
   | { form: 'f1098'; data: F1098ExtractionT }
   | { form: 'payment'; data: PaymentExtractionT }

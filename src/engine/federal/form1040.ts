@@ -4,6 +4,7 @@ import { FED_2025, type FedParams } from '../params/fed2025';
 import type { TaxFacts } from '../../shared/facts';
 import { scheduleA } from './scheduleA';
 import { scheduleB } from './scheduleB';
+import { computeBusinessAndSchedule1, type BusinessResult } from './business';
 import {
   capitalLossCarryoverTo2026,
   computeScheduleD,
@@ -21,7 +22,24 @@ import { amtScreen } from './amtScreen';
 import { is65OrOlder, retirementDistributions, schedule1A, socialSecurityWorksheet } from './retirement';
 
 export type FederalFormId =
-  'f1040' | 'sch1A' | 'schA' | 'schB' | 'schD' | 'f8949' | 'sch2' | 'sch3' | 'f8959' | 'f8960' | 'f8995' | 'f8995a';
+  | 'f1040'
+  | 'sch1'
+  | 'sch1A'
+  | 'sch2'
+  | 'sch3'
+  | 'schA'
+  | 'schB'
+  | 'schC'
+  | 'schD'
+  | 'f8949'
+  | 'schSE'
+  | 'f4797'
+  | 'f8995'
+  | 'f8995a'
+  | 'f8959'
+  | 'f8960'
+  | 'f8829'
+  | 'f7206';
 
 export interface FederalResult {
   ledger: Ledger;
@@ -54,6 +72,8 @@ export interface FederalResult {
   capitalLossCarryoverTo2026: { shortTerm: Cents; longTerm: Cents };
   /** Section 199A QBI / REIT / PTP loss carryforwards from 2025 to 2026. */
   qbiCarryforwardTo2026: { qbiLoss: Cents; reitPtpLoss: Cents };
+  /** Schedule C / SE / 8829 / 7206 / 4797 computation details. */
+  business: BusinessResult;
 }
 
 /** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
@@ -75,10 +95,11 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const ret = retirementDistributions(f, p, l);
   const L4b = ret.line4b;
   const L5b = ret.line5b;
-  const d = computeScheduleD(f, L3a, p, l);
+  const biz = computeBusinessAndSchedule1(f, p, l);
+  const d = computeScheduleD(f, L3a, p, l, biz.form4797.scheduleDLine11);
   const L7a = l.set('f1040.7a', d.line7a, 'Capital gain or (loss)');
-  const L8 = l.set('f1040.8', 0, 'Additional income (Schedule 1)');
-  const L10 = l.set('f1040.10', 0, 'Adjustments to income (Schedule 1)');
+  const L8 = l.set('f1040.8', biz.schedule1AdditionalIncome, 'Additional income (Schedule 1)');
+  const L10 = l.set('f1040.10', biz.schedule1Adjustments, 'Adjustments to income (Schedule 1)');
   const otherIncomeBeforeSs = L1z + L2b + L3b + L4b + L5b + L7a + L8;
   const ss = socialSecurityWorksheet(f, otherIncomeBeforeSs, L2a, L10, p, l);
   const L6b = ss.line6b;
@@ -98,7 +119,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
       ? p.additionalStandardDeduction65OrBlind.singleOrHoh
       : p.additionalStandardDeduction65OrBlind.marriedOrQss;
   const standard = p.standardDeduction[f.filingStatus] + extraBoxes * extraPerBox;
-  const itemized = scheduleA(f, L11b, p, l);
+  const itemized = scheduleA(f, L11b, p, l, biz.homeOfficeScheduleAReduction);
   const itemizing = f.forceItemize || itemized > standard;
   const L12e = l.set('f1040.12e', itemizing ? itemized : standard, itemizing ? 'Itemized deductions (Schedule A)' : 'Standard deduction');
   const L13b = l.set('f1040.13b', schedule1A(f, L11b, p, l), 'Additional deductions (Schedule 1-A)');
@@ -107,6 +128,9 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     {
       taxableIncomeBeforeQbi: Math.max(0, L11b - L12e - L13b),
       netCapitalGainAndQualifiedDividends: L3a + d.netCapitalGain,
+      tradeOrBusinessQbi: biz.netQbi,
+      isSstb: biz.activeBusiness?.isSstb ?? true,
+      businessW2Wages: biz.activeBusiness?.expenses.wages ?? 0,
     },
     p,
     l,
@@ -138,13 +162,14 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L16 = l.set('f1040.16', tax, 'Income tax');
 
   const { mayOweAmt } = amtScreen(f, itemizing, p, l);
-  const medicare = form8959(f, p, l);
+  const medicare = form8959(f, p, l, biz.seNetEarnings);
   const niit = form8960({ taxableInterest: L2b, ordinaryDividends: L3b, netGain: L7a, magi: L11b }, f.filingStatus, p, l);
   const S2_2 = l.set('sch2.2', 0, 'Alternative minimum tax (Form 6251)');
   const S2_3 = l.set('sch2.3', S2_2, 'Total additions to tax', 'Lines 1z + 2');
+  const S2_4 = l.set('sch2.4', biz.seTax, 'Self-employment tax (Schedule SE)');
   const S2_11 = l.set('sch2.11', medicare.tax, 'Additional Medicare Tax (Form 8959)');
   const S2_12 = l.set('sch2.12', niit, 'Net investment income tax (Form 8960)');
-  const S2_21 = l.set('sch2.21', S2_11 + S2_12, 'Total other taxes');
+  const S2_21 = l.set('sch2.21', S2_4 + S2_11 + S2_12, 'Total other taxes');
   const s3 = schedule3(f, p, l);
 
   const L17 = l.set('f1040.17', S2_3, 'Additional tax (Schedule 2, line 3)');
@@ -165,6 +190,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
       ...f.f1099Div.map((x) => x.box4FedWithheld),
       ...(f.f1099B ?? []).map((x) => x.box4FedWithheld),
       ...(f.f1099R ?? []).map((x) => x.box4FedWithheld),
+      ...(f.f1099Nec ?? []).map((x) => x.box4FedWithheld),
       ...(f.ssa1099 ?? []).map((x) => x.box6FedWithheld),
     ]),
     'Federal tax withheld (1099s)',
@@ -184,19 +210,27 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L37 = l.set('f1040.37', Math.max(0, L24 - L33), 'Amount you owe', 'Line 24 − line 33');
 
   const foreign = f.foreignAccounts.hasForeignAccount === true || f.foreignAccounts.foreignTrust === true;
-  // Attachment Sequence No. order: 1040, Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), Sch D (12), 8949 (12A), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72).
+  // Attachment Sequence No. order:
+  // 1040, Sch 1 (01), Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), Sch C (09), Sch D (12), 8949 (12A),
+  // Sch SE (17), 4797 (27), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72), 8829 (176), 7206 (206).
   const forms: FederalFormId[] = ['f1040'];
+  if (biz.needsSchedule1) forms.push('sch1');
   if (L13b > 0) forms.push('sch1A');
   if (S2_3 > 0 || S2_21 > 0) forms.push('sch2');
   if (s3.nonrefundableCredits > 0 || s3.otherPayments > 0) forms.push('sch3');
   if (itemizing) forms.push('schA');
   if (L2b > p.scheduleBThreshold || L3b > p.scheduleBThreshold || foreign) forms.push('schB');
+  if (biz.needsScheduleC) forms.push('schC');
   if (d.needsScheduleD) forms.push('schD');
   if (d.needsForm8949) forms.push('f8949');
+  if (biz.needsScheduleSE) forms.push('schSE');
+  if (biz.needsForm4797) forms.push('f4797');
   if (qbi.form === 'f8995') forms.push('f8995');
   if (qbi.form === 'f8995a') forms.push('f8995a');
   if (medicare.tax > 0 || medicare.withholding > 0) forms.push('f8959');
   if (niit > 0) forms.push('f8960');
+  if (biz.needsForm8829) forms.push('f8829');
+  if (biz.needsForm7206) forms.push('f7206');
 
   const carryoverTo2026 = capitalLossCarryoverTo2026({
     agi: L11b,
@@ -226,5 +260,6 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     scheduleDCheckboxes: d.checkboxes,
     capitalLossCarryoverTo2026: carryoverTo2026,
     qbiCarryforwardTo2026: qbi.carryforwardTo2026,
+    business: biz,
   };
 }

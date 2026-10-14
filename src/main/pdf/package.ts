@@ -11,17 +11,23 @@ import { STATE_MAPS, mdValues } from './stateValues';
 
 const FORM_TITLE: Record<FederalFormId, string> = {
   f1040: 'Form 1040',
+  sch1: 'Schedule 1',
   sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
   sch3: 'Schedule 3',
   schA: 'Schedule A',
   schB: 'Schedule B',
+  schC: 'Schedule C',
   schD: 'Schedule D',
   f8949: 'Form 8949',
+  schSE: 'Schedule SE',
+  f4797: 'Form 4797',
   f8995: 'Form 8995',
   f8995a: 'Form 8995-A',
   f8959: 'Form 8959',
   f8960: 'Form 8960',
+  f8829: 'Form 8829',
+  f7206: 'Form 7206',
 };
 
 /** IRS "Where Do You File?" for Maryland residents (2025 Form 1040 instructions, p. 126). */

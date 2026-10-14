@@ -175,6 +175,143 @@ export interface Carryovers {
   reitPtpLoss: Cents;
 }
 
+export interface Form1099Nec {
+  id: string;
+  owner: Owner;
+  payerName: string;
+  payerEin: string | null;
+  /** Box 1: Nonemployee compensation. */
+  box1NonemployeeCompensation: Cents;
+  /** Box 4: Federal income tax withheld. */
+  box4FedWithheld: Cents;
+  stateLines: { state: string; stateTax: Cents; stateIncome: Cents }[];
+  evidence: Record<string, Evidence>;
+}
+
+/** Expenses for business use of home (Schedule C line 30 / Form 8829). */
+export interface HomeOfficeFacts {
+  method: 'simplified' | 'regular';
+  /** Area of home used regularly and exclusively for business (Form 8829 line 1 / simplified line 30(b)). */
+  businessSqFt: number;
+  /** Total area of home (Form 8829 line 2 / simplified line 30(a)). */
+  totalSqFt: number;
+  /** Form 8829 Part II direct expenses (lines 9a–11a, 16a–22a). */
+  directMortgageInterest?: Cents;
+  directRealEstateTaxes?: Cents;
+  directInsurance?: Cents;
+  directRent?: Cents;
+  directRepairs?: Cents;
+  directUtilities?: Cents;
+  directOther?: Cents;
+  /** Form 8829 Part II indirect expenses (lines 9b–11b, 16b–22b). When mortgageInterest / realEstateTaxes are omitted, defaults to itemized inputs. */
+  indirectMortgageInterest?: Cents;
+  indirectRealEstateTaxes?: Cents;
+  indirectInsurance?: Cents;
+  indirectRent?: Cents;
+  indirectRepairs?: Cents;
+  indirectUtilities?: Cents;
+  indirectOther?: Cents;
+  /** Prior-year unallowed operating expenses carryover (Form 8829 line 25). */
+  priorOperatingCarryover?: Cents;
+  /** Prior-year unallowed excess casualty losses and depreciation carryover (Form 8829 line 31). */
+  priorDepreciationCarryover?: Cents;
+  /** Form 8829 Part III — Depreciation of your home (lines 37–41). */
+  homeAdjustedBasisOrFmv?: Cents;
+  homeLandValue?: Cents;
+  /** Depreciation percentage in ppm (e.g. 2.564% = pct('2.564')), or standard 39-year nonresidential (2.564%) if omitted. */
+  homeDepreciationRatePpm?: number;
+}
+
+/** Business asset on the depreciation listing and its 2025 disposition (sold, scrapped/abandoned, or converted to personal use). */
+export interface BusinessAssetDisposition {
+  description: string;
+  /** Date acquired (MM/DD/YYYY). */
+  dateAcquired: string;
+  /** Date sold, scrapped, or converted to personal use (MM/DD/YYYY). */
+  dateDisposed: string;
+  /** How the asset left the business:
+   *  - 'sold': sold for `salesPrice` -> reported on Form 4797 (Part III if held >1 yr with gain and depreciation, Part I if held >1 yr with loss, Part II if held <=1 yr).
+   *  - 'scrapped': abandoned / thrown away for $0 -> ordinary abandonment loss of remaining adjusted basis on Form 4797 Part II line 10.
+   *  - 'personal': kept for personal use -> no gain or loss recognized unless business use of §179 / listed property dropped to <=50% during recovery period (Form 4797 Part IV). */
+  disposition: 'sold' | 'scrapped' | 'personal';
+  /** Gross sales price (Form 4797 line 2(d) / 10(d) / 20). 0 if scrapped or converted to personal use. */
+  salesPrice: Cents;
+  /** Cost or other basis plus improvements and expense of sale (Form 4797 line 2(f) / 10(f) / 21). */
+  costBasis: Cents;
+  /** Total depreciation (including §179 and bonus) allowed or allowable since acquisition (Form 4797 line 2(e) / 10(e) / 22). */
+  depreciationAllowed: Cents;
+  /** True if held more than 1 year (default true). */
+  heldMoreThanOneYear?: boolean;
+  /** Property type for Form 4797 Part III recapture (default '1245' for equipment/furniture/computers). */
+  propertyType?: '1245' | '1250';
+  /** Prior-year §179 deduction subject to recapture on conversion to <=50% business use (Form 4797 Part IV line 33(a)). */
+  section179RecapturePrior?: Cents;
+  /** Recomputed depreciation had §179 not been claimed (Form 4797 Part IV line 34(a)). */
+  section179RecomputedDepreciation?: Cents;
+}
+
+/** Sole proprietorship business (Schedule C, Schedule SE, SEP deduction, Form 7206, Form 8829, Form 4797). */
+export interface ScheduleCBusiness {
+  id: string;
+  owner: Owner;
+  /** Line A: Principal business or profession, e.g. "Management consulting". */
+  principalBusiness: string;
+  /** Line B: 6-digit Principal Business Code from instructions, e.g. "541610". */
+  businessCode: string;
+  /** Line C: Business name (blank if same as proprietor). */
+  businessName?: string | null;
+  /** Line D: EIN (9 digits, no dashes) if any. */
+  ein?: string | null;
+  /** True if the business is a Specified Service Trade or Business (SSTB) under IRC §199A(d)(2) (e.g. consulting, law, health, accounting). */
+  isSstb?: boolean;
+  /** True if this business closed in 2024 (no 2025 Schedule C needed). */
+  closedInPriorYear?: boolean;
+  /** Gross receipts or sales in addition to any uploaded Form 1099-NECs for this owner. */
+  additionalGrossReceipts?: Cents;
+  returnsAndAllowances?: Cents;
+  otherIncome?: Cents;
+  /** Schedule C Part II expenses (lines 8–27a). */
+  expenses: {
+    advertising?: Cents; // line 8
+    carAndTruck?: Cents; // line 9
+    commissionsAndFees?: Cents; // line 10
+    contractLabor?: Cents; // line 11
+    depletion?: Cents; // line 12
+    depreciation?: Cents; // line 13
+    employeeBenefitPrograms?: Cents; // line 14
+    insurance?: Cents; // line 15
+    interestMortgage?: Cents; // line 16a
+    interestOther?: Cents; // line 16b
+    legalAndProfessional?: Cents; // line 17
+    officeExpense?: Cents; // line 18
+    pensionAndProfitSharing?: Cents; // line 19 (for employees)
+    rentVehiclesMachinery?: Cents; // line 20a
+    rentOtherBusinessProperty?: Cents; // line 20b
+    repairsAndMaintenance?: Cents; // line 21
+    supplies?: Cents; // line 22
+    taxesAndLicenses?: Cents; // line 23
+    travel?: Cents; // line 24a
+    deductibleMeals?: Cents; // line 24b (50% limit already applied)
+    utilities?: Cents; // line 25
+    wages?: Cents; // line 26
+  };
+  /** Schedule C Part V (line 48 -> line 27b) other expenses. */
+  otherExpenses?: { description: string; amount: Cents }[];
+  /** Home office (Schedule C line 30 / Form 8829). */
+  homeOffice?: HomeOfficeFacts | null;
+  /** Self-employed SEP, SIMPLE, or solo 401(k) employer contribution for the proprietor (Schedule 1 line 16).
+   *  When `'max'`, Tidy computes the maximum deductible 20% (25% / 1.25) SEP contribution up to $70,000. */
+  sepContribution?: Cents | 'max';
+  /** Health insurance premiums paid in 2025 under the business for months not eligible for an employer plan (Form 7206 line 1). */
+  healthInsurancePremiums?: Cents;
+  /** Qualified long-term care insurance premiums paid in 2025 (Form 7206 line 2, capped by age limit in engine). */
+  longTermCarePremiums?: Cents;
+  /** Dispositions of business assets in 2025 (Form 4797). */
+  assetDispositions?: BusinessAssetDisposition[];
+  /** Nonrecaptured net §1231 losses from prior 5 years (Form 4797 line 8). */
+  priorSection1231Losses?: Cents;
+}
+
 export interface ItemizedInputs {
   medicalExpenses: Cents;
   /** State/local income tax PAID during the calendar year beyond W-2 withholding: estimated payments
@@ -229,7 +366,9 @@ export interface TaxFacts {
   f1099Div: Form1099Div[];
   f1099B?: Form1099B[];
   f1099R?: Form1099R[];
+  f1099Nec?: Form1099Nec[];
   ssa1099?: Ssa1099[];
+  scheduleC?: ScheduleCBusiness[];
   carryovers?: Carryovers;
   /** True if taxpayer or spouse has nondeductible traditional IRA basis (requires Form 8606 on traditional IRA distributions). */
   hasNondeductibleIraBasis?: boolean | null;

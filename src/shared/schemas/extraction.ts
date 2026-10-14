@@ -41,6 +41,7 @@ export const PART_FORMS = [
   'f1099_div',
   'f1099_b',
   'f1099_r',
+  'f1099_nec',
   'ssa_1099',
   'f1099_misc',
   'f1099_oid',
@@ -175,6 +176,23 @@ export const Ssa1099Extraction = z.object({
 });
 export type Ssa1099ExtractionT = z.infer<typeof Ssa1099Extraction>;
 
+export const F1099NecExtraction = z.object({
+  payerName: z.string(),
+  payerEin: z.string().nullable(),
+  recipientName: z.string(),
+  recipientSsnLast4: z.string().nullable(),
+  box1NonemployeeCompensation: Amount.describe('Box 1: Nonemployee compensation.'),
+  box4FedWithheld: Amount.describe('Box 4: Federal income tax withheld.'),
+  stateLines: z.array(
+    z.object({
+      state: z.string().nullable(),
+      stateTax: Amount.describe('Box 5: State tax withheld.'),
+      stateIncome: Amount.describe('Box 7: State income.'),
+    }),
+  ),
+});
+export type F1099NecExtractionT = z.infer<typeof F1099NecExtraction>;
+
 export const PaymentExtraction = z.object({
   kind: z.enum(['property_tax', 'charity_cash', 'charity_noncash', 'federal_estimate', 'state_estimate', 'other']),
   payee: z.string(),
@@ -208,9 +226,20 @@ export const PriorYearExtraction = z.object({
   payers: z.array(
     z.object({
       name: z.string(),
-      form: z.enum(['w2', 'f1099_int', 'f1099_div', 'f1099_r', 'ssa_1099', 'f1099_b', 'k1', 'f1098', 'other']),
+      form: z.enum(['w2', 'f1099_int', 'f1099_div', 'f1099_r', 'f1099_nec', 'ssa_1099', 'f1099_b', 'k1', 'f1098', 'other']),
     }),
   ),
+  scheduleC: z
+    .object({
+      principalBusiness: z.string(),
+      businessCode: z.string().nullable(),
+      businessName: z.string().nullable(),
+      ein: z.string().nullable(),
+      homeOfficeTotalSqFt: z.number().int().nullable(),
+      homeOfficeBusinessSqFt: z.number().int().nullable(),
+    })
+    .nullable()
+    .optional(),
   carryovers: z.object({
     capitalLossShortTerm: Amount,
     capitalLossLongTerm: Amount,

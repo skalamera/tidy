@@ -345,8 +345,8 @@ export const RULES: Rule[] = [
     applies: () => true,
     build: () =>
       yesNo(
-        'Besides wages, interest, dividends, stock or fund sales, pensions, IRAs, and Social Security, did you have any other income in 2025?',
-        'For example a business, rental property, partnership or S corporation, or trust.',
+        'Besides wages, self-employment / consulting, interest, dividends, stock or fund sales, pensions, IRAs, and Social Security, did you have any other income in 2025?',
+        'For example a rental property, partnership or S corporation, or trust.',
       ),
     apply: () => {},
   },
@@ -410,6 +410,87 @@ export const RULES: Rule[] = [
       ),
     apply: (a, f) => {
       if (f.spouse) f.spouse.blind = a === 'yes';
+    },
+  },
+  {
+    id: 'business-active-2025',
+    sectionId: 'wages',
+    applies: (c) => Boolean(c.prior?.scheduleC) && (c.facts.f1099Nec ?? []).length === 0,
+    build: (c) =>
+      yesNo(
+        `Your 2024 return included a Schedule C business (${c.prior!.scheduleC!.businessName || c.prior!.scheduleC!.principalBusiness}). Did that business operate or close during 2025?`,
+        'Answer “No” if the business already closed in 2024 with no 2025 income, expenses, or asset sales.',
+      ),
+    apply: (a, f) => {
+      if (a === 'no' && f.scheduleC?.[0]) f.scheduleC[0].closedInPriorYear = true;
+    },
+  },
+  {
+    id: 'business-additional-receipts',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    build: (c) =>
+      money(
+        (c.facts.f1099Nec ?? []).length > 0
+          ? 'Besides your Form 1099-NEC income, how much other gross receipts or sales did your business collect in 2025? Enter 0 if none.'
+          : 'How much gross receipts or sales did your business collect in 2025? Enter 0 if none.',
+        'Include any consulting fees or sales not reported on a 1099-NEC.',
+      ),
+    apply: (a, f) => {
+      if (!f.scheduleC || f.scheduleC.length === 0) {
+        f.scheduleC = [
+          {
+            id: 'schc-auto',
+            owner: f.f1099Nec?.[0]?.owner ?? 'taxpayer',
+            principalBusiness: 'Consulting services',
+            businessCode: '541610',
+            isSstb: true,
+            expenses: {},
+          },
+        ];
+      }
+      f.scheduleC[0].additionalGrossReceipts = cents(a);
+    },
+  },
+  {
+    id: 'business-expenses',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    build: () =>
+      money(
+        'How much did your business spend on operating expenses in 2025 (office, software, legal/professional, travel, etc., excluding home office, SEP, and health insurance)? Enter 0 if none.',
+        'Reported on Schedule C Part II. You can also ask Tidy in chat to break expenses out by exact Schedule C line.',
+      ),
+    apply: (a, f) => {
+      if (f.scheduleC?.[0] && cents(a) > 0) {
+        f.scheduleC[0].expenses = { ...f.scheduleC[0].expenses, officeExpense: cents(a) };
+      }
+    },
+  },
+  {
+    id: 'business-sep',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    build: () =>
+      money(
+        'How much did you contribute to a self-employed SEP, SIMPLE, or solo 401(k) plan for 2025? Enter 0 if none.',
+        'Tidy caps the deduction at the 2025 statutory limit (20% of net self-employment earnings after half of SE tax, up to $70,000) on Schedule 1, line 16.',
+      ),
+    apply: (a, f) => {
+      if (f.scheduleC?.[0] && cents(a) > 0) f.scheduleC[0].sepContribution = cents(a);
+    },
+  },
+  {
+    id: 'business-health-insurance',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    build: () =>
+      money(
+        'How much did you pay in 2025 for self-employed health insurance premiums under your business (for months you weren’t eligible for an employer plan)? Enter 0 if none.',
+        'Reported on Form 7206 and deducted on Schedule 1, line 17, up to your net business profit after SE tax and SEP.',
+      ),
+    apply: (a, f) => {
+      if (f.scheduleC?.[0] && cents(a) > 0) f.scheduleC[0].healthInsurancePremiums = cents(a);
     },
   },
   {

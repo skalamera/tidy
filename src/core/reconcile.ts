@@ -8,6 +8,7 @@ import { RULES } from './questionRules';
 const FORM_SECTION: Record<string, SectionId> = {
   w2: 'wages',
   f1099_r: 'wages',
+  f1099_nec: 'wages',
   ssa_1099: 'wages',
   f1099_int: 'investments',
   f1099_div: 'investments',
@@ -19,6 +20,7 @@ const FORM_SECTION: Record<string, SectionId> = {
 const FORM_LABEL: Record<string, string> = {
   w2: 'W-2',
   f1099_r: '1099-R',
+  f1099_nec: '1099-NEC',
   ssa_1099: 'SSA-1099',
   f1099_int: '1099-INT',
   f1099_div: '1099-DIV',

@@ -119,6 +119,90 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     text.ssn = dashedSsn(f.taxpayer.ssn);
   }
 
+  if (id === 'sch1') {
+    if (r.business.needsForm4797) checks.push('form4797');
+  }
+
+  if (id === 'schC') {
+    const biz = r.business.activeBusiness;
+    const owner = biz?.owner === 'spouse' && f.spouse ? f.spouse : f.taxpayer;
+    text.name = `${owner.firstName} ${owner.lastName}`.trim();
+    text.ssn = owner.ssn;
+    text.principalBusiness = biz?.principalBusiness ?? 'Consulting services';
+    text.businessCode = (biz?.businessCode ?? '541610').replace(/\D/g, '').slice(0, 6);
+    if (biz?.businessName) text.businessName = biz.businessName;
+    if (biz?.ein) text.ein = biz.ein.replace(/\D/g, '').slice(0, 9);
+    text.street = [f.address.street, f.address.apt].filter(Boolean).join(', ');
+    text.cityStateZip = [f.address.city, f.address.state, f.address.zip].filter(Boolean).join(', ');
+    checks.push('accountingCash', 'materialParticipationYes', 'payments1099No');
+    if (r.business.printed.simplifiedTotalSqFt) text.simplifiedTotalSqFt = r.business.printed.simplifiedTotalSqFt;
+    if (r.business.printed.simplifiedBusinessSqFt) text.simplifiedBusinessSqFt = r.business.printed.simplifiedBusinessSqFt;
+    if (r.ledger.get('schC.31') < 0) checks.push('allAtRisk');
+    (biz?.otherExpenses ?? []).slice(0, 9).forEach((item, idx) => {
+      text[`otherExp.${idx}.desc`] = item.description;
+      text[`otherExp.${idx}.amt`] = formAmount(item.amount);
+    });
+  }
+
+  if (id === 'schSE') {
+    const biz = r.business.activeBusiness;
+    const owner = biz?.owner === 'spouse' && f.spouse ? f.spouse : f.taxpayer;
+    text.name = `${owner.firstName} ${owner.lastName}`.trim();
+    text.ssn = dashedSsn(owner.ssn);
+  }
+
+  if (id === 'f8829') {
+    const biz = r.business.activeBusiness;
+    const owner = biz?.owner === 'spouse' && f.spouse ? f.spouse : f.taxpayer;
+    text.name = `${owner.firstName} ${owner.lastName}`.trim();
+    text.ssn = dashedSsn(owner.ssn);
+    if (r.business.printed.f8829Pct3) text.pct3 = r.business.printed.f8829Pct3;
+    if (r.business.printed.f8829Pct7) text.pct7 = r.business.printed.f8829Pct7;
+    if (r.business.printed.f8829Pct41) text.pct41 = r.business.printed.f8829Pct41;
+  }
+
+  if (id === 'f7206') {
+    if (r.business.printed.f7206Ratio6) text.ratio6 = r.business.printed.f7206Ratio6;
+  }
+
+  if (id === 'f4797') {
+    // Line 11 has pre-printed parentheses on Form 4797, so print positive magnitude.
+    const v11 = Math.abs(r.ledger.get('f4797.11'));
+    if (v11 > 0) text['f4797.11'] = formAmount(v11);
+    else delete text['f4797.11'];
+
+    r.business.form4797.part1Rows.slice(0, 4).forEach((row, i) => {
+      text[`p1.r${i}.a`] = row.description;
+      text[`p1.r${i}.b`] = row.dateAcquired;
+      text[`p1.r${i}.c`] = row.dateSold;
+      text[`p1.r${i}.d`] = formAmount(row.salesPrice);
+      text[`p1.r${i}.e`] = formAmount(row.depreciation);
+      text[`p1.r${i}.f`] = formAmount(row.costBasis);
+      text[`p1.r${i}.g`] = formAmount(row.gainOrLoss);
+    });
+    r.business.form4797.part2Rows.slice(0, 4).forEach((row, i) => {
+      text[`p2.r${i}.a`] = row.description;
+      text[`p2.r${i}.b`] = row.dateAcquired;
+      text[`p2.r${i}.c`] = row.dateSold;
+      text[`p2.r${i}.d`] = row.salesPrice === 0 ? '0' : formAmount(row.salesPrice);
+      text[`p2.r${i}.e`] = formAmount(row.depreciation);
+      text[`p2.r${i}.f`] = formAmount(row.costBasis);
+      text[`p2.r${i}.g`] = formAmount(row.gainOrLoss);
+    });
+    r.business.form4797.part3Cols.slice(0, 4).forEach((col, c) => {
+      text[`p3.c${c}.desc`] = col.description;
+      text[`p3.c${c}.acq`] = col.dateAcquired;
+      text[`p3.c${c}.sold`] = col.dateSold;
+      text[`p3.c${c}.20`] = formAmount(col.line20SalesPrice);
+      text[`p3.c${c}.21`] = formAmount(col.line21CostBasis);
+      text[`p3.c${c}.22`] = formAmount(col.line22Depreciation);
+      text[`p3.c${c}.23`] = col.line23AdjustedBasis === 0 ? '0' : formAmount(col.line23AdjustedBasis);
+      text[`p3.c${c}.24`] = formAmount(col.line24TotalGain);
+      text[`p3.c${c}.25a`] = formAmount(col.line25aDepr1245);
+      text[`p3.c${c}.25b`] = formAmount(col.line25bRecapture1245);
+    });
+  }
+
   if (id === 'schA' && f.forceItemize && r.ledger.get('schA.17') < r.ledger.get('f1040.12e')) checks.push('forceItemize');
 
   if (id === 'schD') {

@@ -19,7 +19,13 @@ export function saltDeduction(line5d: Cents, magi: Cents, status: FilingStatus, 
 
 /** Schedule A (2025), lines 1–17, Phase-1 scope: no charitable AGI limits, no mortgage-debt limits,
  *  no Form 4952 (those are added in Phase 7). Returns line 17. */
-export function scheduleA(f: TaxFacts, agi: Cents, p: FedParams, l: Ledger): Cents {
+export function scheduleA(
+  f: TaxFacts,
+  agi: Cents,
+  p: FedParams,
+  l: Ledger,
+  homeOfficeReduction: { mortgageInterest: Cents; realEstateTax: Cents } = { mortgageInterest: 0, realEstateTax: 0 },
+): Cents {
   const it = f.itemized;
   const L1 = l.set('schA.1', it.medicalExpenses, 'Medical and dental expenses');
   const L2 = l.set('schA.2', agi, 'Adjusted gross income');
@@ -29,16 +35,21 @@ export function scheduleA(f: TaxFacts, agi: Cents, p: FedParams, l: Ledger): Cen
   const withheldStateLocal = sumCents([
     ...f.w2s.flatMap((w) => [...w.stateLines.map((s) => s.stateTax), ...w.localLines.map((x) => x.localTax)]),
     ...(f.f1099R ?? []).flatMap((r) => r.stateLines.map((s) => s.stateTax)),
+    ...(f.f1099Nec ?? []).flatMap((n) => n.stateLines.map((s) => s.stateTax)),
   ]);
   const paidOther = sumCents(it.stateIncomeTaxPayments.map((x) => x.amount));
   const L5a = l.set('schA.5a', withheldStateLocal + paidOther, 'State and local income taxes');
-  const L5b = l.set('schA.5b', it.realEstateTax, 'Real estate taxes');
+  const L5b = l.set('schA.5b', Math.max(0, it.realEstateTax - homeOfficeReduction.realEstateTax), 'Real estate taxes');
   const L5c = l.set('schA.5c', it.personalPropertyTax, 'Personal property taxes');
   const L5d = l.set('schA.5d', L5a + L5b + L5c, 'Total state and local taxes');
   const L5e = l.set('schA.5e', saltDeduction(L5d, agi, f.filingStatus, p), 'State and local taxes you can deduct (SALT cap)');
   const L7 = l.set('schA.7', L5e, 'Total taxes');
 
-  const L8a = l.set('schA.8a', it.mortgageInterest1098, 'Home mortgage interest (Form 1098)');
+  const L8a = l.set(
+    'schA.8a',
+    Math.max(0, it.mortgageInterest1098 - homeOfficeReduction.mortgageInterest),
+    'Home mortgage interest (Form 1098)',
+  );
   const L8e = l.set('schA.8e', L8a, 'Total home mortgage interest');
   const L9 = l.set('schA.9', it.investmentInterest, 'Investment interest');
   const L10 = l.set('schA.10', L8e + L9, 'Total interest');

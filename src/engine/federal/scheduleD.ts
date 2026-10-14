@@ -123,7 +123,13 @@ function paginatePart(box: Form8949Box, rows: Form8949Row[]): Form8949PartPage[]
 }
 
 /** Compute Form 8949 and Schedule D (Parts I, II, and III, including lines 18 and 19). */
-export function computeScheduleD(f: TaxFacts, qualifiedDividends: Cents, p: FedParams, l: Ledger): ScheduleDResult {
+export function computeScheduleD(
+  f: TaxFacts,
+  qualifiedDividends: Cents,
+  p: FedParams,
+  l: Ledger,
+  form4797Line11: Cents = 0,
+): ScheduleDResult {
   const allLots = (f.f1099B ?? []).flatMap((b) => b.lots);
   const accruedMarketDiscountInterest = sumCents(allLots.map((lot) => roundToDollar(lot.marketDiscount)));
 
@@ -182,7 +188,7 @@ export function computeScheduleD(f: TaxFacts, qualifiedDividends: Cents, p: FedP
   const L8b = setRowTotals('schD.8b', 'Long-term from Form 8949 Box D', byBox.D);
   const L9 = setRowTotals('schD.9', 'Long-term from Form 8949 Box E', byBox.E);
   const L10 = setRowTotals('schD.10', 'Long-term from Form 8949 Box F', byBox.F);
-  const L11 = l.set('schD.11', 0, 'Gain from Form 4797, Part I; long-term gain from Forms 2439 and 6252');
+  const L11 = l.set('schD.11', form4797Line11, 'Gain from Form 4797, Part I; long-term gain from Forms 2439 and 6252');
   const L12 = l.set('schD.12', 0, 'Net long-term gain or (loss) from Schedules K-1');
   const capGainDists = sumCents(f.f1099Div.map((d) => roundToDollar(d.box2aCapitalGainDistributions)));
   const L13 = l.set('schD.13', capGainDists, 'Capital gain distributions (Form 1099-DIV, box 2a)');
@@ -237,7 +243,7 @@ export function computeScheduleD(f: TaxFacts, qualifiedDividends: Cents, p: FedP
   // If the ONLY capital gain/loss items are 1099-DIV box 2a capital gain distributions AND boxes 2b/2d are 0,
   // the taxpayer can check box 7b on Form 1040 and omit Schedule D.
   const hasOnlySimpleCapGainDists =
-    allLots.length === 0 && stCarryover === 0 && ltCarryover === 0 && unrecaptured1250Div === 0 && rate28Div === 0;
+    allLots.length === 0 && form4797Line11 === 0 && stCarryover === 0 && ltCarryover === 0 && unrecaptured1250Div === 0 && rate28Div === 0;
   const needsScheduleD = !hasOnlySimpleCapGainDists;
   const line7bCheck = hasOnlySimpleCapGainDists && capGainDists > 0;
   const needsForm8949 = form8949Sheets.length > 0;

@@ -4,6 +4,7 @@ import { FED_2025 } from '../params/fed2025';
 import { MD_2025, type MdCounty, type MdParams } from '../params/md2025';
 import type { FederalResult } from '../federal/form1040';
 import { taxableDistribution } from '../federal/retirement';
+import { ownerScheduleCIncome } from '../federal/business';
 import { normalizeLot } from '../federal/scheduleD';
 import type { Form1099R, Owner, Person, TaxFacts } from '../../shared/facts';
 import { mdCapitalGainSurtax, mdExemptionValue, mdItemizedPhaseOut, mdLocalTax, mdStateTax } from './mdTax';
@@ -148,7 +149,7 @@ function computeSeniorTaxCredit(f: TaxFacts, fagi: Cents, p: MdParams, l: Ledger
   return credit;
 }
 
-const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: Cents, spouseSsNet: Cents) => {
+const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: Cents, spouseSsNet: Cents, fl: Ledger) => {
   const totalNetSs = youSsNet + spouseSsNet;
   const ownerNetSs = who === 'taxpayer' ? youSsNet : spouseSsNet;
   const ownerTaxableSs = totalNetSs > 0 ? roundToDollar((totalTaxableSs * ownerNetSs) / totalNetSs) : 0;
@@ -163,6 +164,7 @@ const ownerIncome = (f: TaxFacts, who: Owner, totalTaxableSs: Cents, youSsNet: C
     ...f.f1099Int.filter((x) => x.owner === who).map((x) => x.box1Interest + x.box3UsTreasuryInterest),
     ...f.f1099Div.filter((x) => x.owner === who).map((x) => x.box1aOrdinaryDividends + x.box2aCapitalGainDistributions),
     ...(f.f1099R ?? []).filter((r) => r.owner === who).map(fedTaxable1099R),
+    ownerScheduleCIncome(f, who, fl),
     ownerCapGainFromB,
     ownerMarketDiscount,
     ownerTaxableSs,
@@ -185,8 +187,10 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
 
   // Income
   const L1 = l.set('md502.1', fl.get('f1040.11a'), 'Federal adjusted gross income');
-  l.set('md502.1a', fl.get('f1040.1z'), 'Wages');
-  l.set('md502.1b', fl.get('f1040.1z'), 'Earned income');
+  const wages = fl.get('f1040.1z');
+  const netSeEarned = Math.max(0, fl.get('sch1.3') - fl.get('sch1.15') - fl.get('sch1.16') - fl.get('sch1.17'));
+  l.set('md502.1a', wages, 'Wages');
+  l.set('md502.1b', wages + netSeEarned, 'Earned income');
   const L1c = l.set('md502.1c', fl.get('f1040.7a'), 'Capital gain');
   const ret = compute502RAndPensionExclusion(f, p, l);
   l.set('md502.1d', ret.line1d, 'Taxable pensions, IRAs, and annuities');
@@ -216,10 +220,10 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   let L14 = 0;
   if (status === 'mfj' && f.spouse) {
     const you =
-      ownerIncome(f, 'taxpayer', L11, ret.youSsNet, ret.spouseSsNet) -
+      ownerIncome(f, 'taxpayer', L11, ret.youSsNet, ret.spouseSsNet, fl) -
       ownerSubtractions(f, 'taxpayer', ret.youExcluded, L11, ret.youSsNet, ret.spouseSsNet);
     const spouse =
-      ownerIncome(f, 'spouse', L11, ret.youSsNet, ret.spouseSsNet) -
+      ownerIncome(f, 'spouse', L11, ret.youSsNet, ret.spouseSsNet, fl) -
       ownerSubtractions(f, 'spouse', ret.spouseExcluded, L11, ret.youSsNet, ret.spouseSsNet);
     L14 = Math.min(usd(1_200), Math.max(0, Math.min(you, spouse)));
   }
@@ -274,6 +278,7 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   // Payments
   const mdW2 = f.w2s.filter((w) => w.stateLines.some((s) => s.state === 'MD'));
   const md1099R = (f.f1099R ?? []).filter((r) => r.stateLines.some((s) => s.state === 'MD'));
+  const md1099Nec = (f.f1099Nec ?? []).filter((n) => n.stateLines.some((s) => s.state === 'MD'));
   const L41 = l.set(
     'md502.41',
     sumCents([
@@ -282,6 +287,7 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
         ...w.localLines.map((x) => x.localTax),
       ]),
       ...md1099R.flatMap((r) => r.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
+      ...md1099Nec.flatMap((n) => n.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
     ]),
     'Maryland and local tax withheld',
   );

@@ -21,7 +21,9 @@ export function emptyFacts(): TaxFacts {
     f1099Div: [],
     f1099B: [],
     f1099R: [],
+    f1099Nec: [],
     ssa1099: [],
+    scheduleC: [],
     carryovers: {
       capitalLossShortTerm: 0,
       capitalLossLongTerm: 0,
@@ -129,6 +131,28 @@ export function deriveFacts(state: AppState): TaxFacts {
       qbiLoss: prior.carryovers.qbiLoss ? Math.abs(amountCents(prior.carryovers.qbiLoss)) : 0,
       reitPtpLoss: prior.carryovers.reitPtpLoss ? Math.abs(amountCents(prior.carryovers.reitPtpLoss)) : 0,
     };
+    if (prior.scheduleC) {
+      f.scheduleC = [
+        {
+          id: 'schc-prior',
+          owner: 'taxpayer',
+          principalBusiness: prior.scheduleC.principalBusiness,
+          businessCode: prior.scheduleC.businessCode ?? '541610',
+          businessName: prior.scheduleC.businessName,
+          ein: prior.scheduleC.ein,
+          isSstb: true,
+          expenses: {},
+          homeOffice:
+            prior.scheduleC.homeOfficeBusinessSqFt && prior.scheduleC.homeOfficeTotalSqFt
+              ? {
+                  method: 'simplified',
+                  businessSqFt: prior.scheduleC.homeOfficeBusinessSqFt,
+                  totalSqFt: prior.scheduleC.homeOfficeTotalSqFt,
+                }
+              : null,
+        },
+      ];
+    }
   }
 
   for (const doc of state.documents) {
@@ -249,6 +273,27 @@ export function deriveFacts(state: AppState): TaxFacts {
             evidence: {
               box1GrossDistribution: ev('box1GrossDistribution', d.box1GrossDistribution),
               box2aTaxableAmount: ev('box2aTaxableAmount', d.box2aTaxableAmount),
+              box4FedWithheld: ev('box4FedWithheld', d.box4FedWithheld),
+            },
+          });
+          break;
+        }
+        case 'f1099_nec': {
+          const d = x.data;
+          f.f1099Nec!.push({
+            id,
+            owner: guessOwner(f, d.recipientName, d.recipientSsnLast4),
+            payerName: d.payerName,
+            payerEin: d.payerEin,
+            box1NonemployeeCompensation: amountCents(d.box1NonemployeeCompensation),
+            box4FedWithheld: amountCents(d.box4FedWithheld),
+            stateLines: d.stateLines.map((s) => ({
+              state: s.state ?? '',
+              stateTax: amountCents(s.stateTax),
+              stateIncome: amountCents(s.stateIncome),
+            })),
+            evidence: {
+              box1NonemployeeCompensation: ev('box1NonemployeeCompensation', d.box1NonemployeeCompensation),
               box4FedWithheld: ev('box4FedWithheld', d.box4FedWithheld),
             },
           });

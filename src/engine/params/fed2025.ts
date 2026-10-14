@@ -86,6 +86,27 @@ export const FED_2025 = {
   qbi: {
     rate: pct('20'),
     threshold: byStatus(usd(197_300), usd(394_600), usd(197_300), usd(197_300), usd(197_300)),
+    phaseInRange: byStatus(usd(50_000), usd(100_000), usd(50_000), usd(50_000), usd(50_000)),
+  },
+  /** Schedule SE, Schedule C home office, SEP-IRA, and Form 7206 self-employed parameters (2025). */
+  selfEmployment: {
+    netEarningsFactor: pct('92.35'),
+    minNetEarnings: usd(400),
+    ssRate: pct('12.4'),
+    medicareRate: pct('2.9'),
+    deductibleHalfRate: pct('50'),
+    sepMaxContribution: usd(70_000),
+    sepEffectiveRate: pct('20'), // 25% of (net SE - 1/2 SE tax - SEP) = 20% of (net SE - 1/2 SE tax)
+    homeOfficeSimplifiedRatePerSqFt: usd(5),
+    homeOfficeSimplifiedMaxSqFt: 300,
+    homeOfficeDefaultDeprRate: pct('2.564'), // 39-year nonresidential real property
+    longTermCareAgeLimits: {
+      age40OrYounger: usd(480),
+      age41To50: usd(900),
+      age51To60: usd(1_800),
+      age61To70: usd(4_810),
+      age71OrOlder: usd(6_020),
+    },
   },
   salt: {
     cap: usd(40_000),
