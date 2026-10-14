@@ -124,7 +124,12 @@ export function deriveFacts(state: AppState): TaxFacts {
     f.address = { ...prior.address };
     f.residency = { ...f.residency, state: asState(prior.residentState), mdCounty: asMdCounty(prior.mdCounty) };
     f.payments.federalPriorYearApplied = amountCents(prior.appliedToNextYear);
+    f.payments.priorYearFederalAgi = amountCents(prior.agi);
+    f.payments.priorYearFederalTax = amountCents(prior.totalTax);
     f.stateReturn.priorYearApplied = amountCents(prior.stateAppliedToNextYear);
+    if (prior.stateTotalTax) {
+      f.stateReturn.priorYearMdTax = amountCents(prior.stateTotalTax);
+    }
     if (f.stateReturn.priorYearApplied > 0) {
       f.itemized.stateIncomeTaxPayments.push({ label: '2024 state refund applied to 2025', amount: f.stateReturn.priorYearApplied });
     }
@@ -379,7 +384,13 @@ export function deriveFacts(state: AppState): TaxFacts {
           if (d.kind === 'charity_cash' && inYear) f.itemized.charityCash += amt;
           if (d.kind === 'charity_noncash' && inYear) f.itemized.charityNonCash += amt;
           const forThisYear = d.forTaxYear === null ? true : d.forTaxYear === 2025;
-          if (d.kind === 'federal_estimate' && forThisYear) f.payments.federalEstimated.push(amt);
+          if (d.kind === 'federal_estimate' && forThisYear) {
+            f.payments.federalEstimated.push(amt);
+            if (d.datePaid) {
+              f.payments.federalEstimatedDated = f.payments.federalEstimatedDated ?? [];
+              f.payments.federalEstimatedDated.push({ datePaid: d.datePaid, amount: amt });
+            }
+          }
           if (d.kind === 'state_estimate') {
             // Federal SALT counts what you PAID in calendar 2025; the state return counts what was paid FOR 2025.
             if (inYear)

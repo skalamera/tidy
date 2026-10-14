@@ -743,4 +743,61 @@ export const RULES: Rule[] = [
       if (cents(a) > 0) f.itemized.stateIncomeTaxPayments.push({ label: '2024 state estimate paid in January 2025', amount: cents(a) });
     },
   },
+  {
+    id: 'compute-form-2210',
+    sectionId: 'payments',
+    applies: (c) => {
+      const f = c.facts;
+      const withheld =
+        sumCents(f.w2s.map((x) => x.box2FedWithheld)) +
+        sumCents(f.f1099Int.map((x) => x.box4FedWithheld)) +
+        sumCents(f.f1099Div.map((x) => x.box4FedWithheld)) +
+        sumCents((f.f1099B ?? []).map((x) => x.box4FedWithheld)) +
+        sumCents((f.f1099R ?? []).map((x) => x.box4FedWithheld)) +
+        sumCents((f.f1099Nec ?? []).map((x) => x.box4FedWithheld)) +
+        sumCents((f.ssa1099 ?? []).map((x) => x.box6FedWithheld));
+      const est = sumCents(f.payments.federalEstimated) + f.payments.federalPriorYearApplied;
+      const priorTax = f.payments.priorYearFederalTax ?? null;
+      const priorAgi = f.payments.priorYearFederalAgi ?? 0;
+      const reqPrior = priorTax !== null && priorTax > 0 ? Math.round((priorTax * (priorAgi > 15_000_000 ? 110 : 100)) / 100) : null;
+      return reqPrior !== null && withheld + est < reqPrior && reqPrior - withheld >= 100_000;
+    },
+    build: () =>
+      yesNo(
+        'Do you want Tidy to calculate the federal estimated tax penalty (Form 2210) on your return?',
+        'The IRS usually figures any underpayment penalty for you and sends a bill, so most people answer “No” unless they are requesting a waiver or filing Form 2210.',
+      ),
+    apply: (a, f) => {
+      f.payments.computeForm2210 = a === 'yes';
+    },
+  },
+  {
+    id: 'compute-md-502up',
+    sectionId: 'payments',
+    applies: (c) => {
+      const f = c.facts;
+      if (f.residency.state !== 'MD') return false;
+      const priorMdTax = f.stateReturn.priorYearMdTax ?? null;
+      if (priorMdTax === null || priorMdTax <= 0) return false;
+      const mdWithheld = sumCents([
+        ...f.w2s.flatMap((w) => [
+          ...w.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax),
+          ...w.localLines.map((x) => x.localTax),
+        ]),
+        ...(f.f1099R ?? []).flatMap((r) => r.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
+        ...(f.f1099Nec ?? []).flatMap((n) => n.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
+      ]);
+      const mdEst = sumCents(f.stateReturn.estimatedPayments) + f.stateReturn.priorYearApplied;
+      const reqPrior = Math.round((priorMdTax * 110) / 100);
+      return mdWithheld + mdEst < reqPrior && reqPrior - mdWithheld > 50_000;
+    },
+    build: () =>
+      yesNo(
+        'Do you want Tidy to calculate Maryland underestimated tax interest (Form 502UP) with your return?',
+        'If your Maryland withholding and timely estimated payments were less than 90% of 2025 tax and 110% of 2024 tax, Form 502UP figures the interest.',
+      ),
+    apply: (a, f) => {
+      f.stateReturn.computeForm502UP = a === 'yes';
+    },
+  },
 ];

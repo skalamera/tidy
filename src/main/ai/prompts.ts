@@ -45,5 +45,5 @@ export const FORM_PROMPTS: Record<ExtractForm, string> = {
     'This is a previously filed tax return package. Read the federal Form 1040 with its schedules and the state return if present. ' +
     'payers: every W-2 employer, every payer listed on Schedule B, every partnership or S corporation on Schedule E Part II, and mortgage lenders. ' +
     'carryovers: read the Capital Loss Carryover Worksheet, Form 8582, Form 8801, Form 1116, Form 4952 and charitable carryover statements. ' +
-    'appliedToNextYear is Form 1040 line 36. stateBalanceDue is the amount owed on the state return.',
+    'appliedToNextYear is Form 1040 line 36. stateTotalTax is Maryland Form 502 line 34. stateBalanceDue is the amount owed on the state return.',
 };

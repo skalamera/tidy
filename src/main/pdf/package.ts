@@ -15,6 +15,7 @@ const FORM_TITLE: Record<FederalFormId, string> = {
   sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
   sch3: 'Schedule 3',
+  f2210: 'Form 2210',
   schA: 'Schedule A',
   schB: 'Schedule B',
   schC: 'Schedule C',
@@ -180,6 +181,10 @@ export async function buildPackage(state: AppState, readResource: (rel: string) 
     if (id === 'schE') {
       const pages = r.scheduleE.needsScheduleEPage2 ? [0, 1] : [0];
       await append({ ...FEDERAL_MAPS.schE, pages }, values);
+      continue;
+    }
+    if (id === 'f2210') {
+      await append({ ...FEDERAL_MAPS.f2210, pages: r.form2210.pages }, values);
       continue;
     }
     await append(FEDERAL_MAPS[id], values);

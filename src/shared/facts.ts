@@ -487,10 +487,20 @@ export interface ItemizedInputs {
 export interface Payments {
   /** Federal estimated payments made for this tax year (include the January payment of the next year). */
   federalEstimated: Cents[];
+  /** Optional dated federal estimated payments (`YYYY-MM-DD`) for Form 2210 daily penalty calculation. */
+  federalEstimatedDated?: { datePaid: string; amount: Cents }[];
   /** Overpayment from last year's return applied to this year (prior-year Form 1040 line 36). */
   federalPriorYearApplied: Cents;
   /** Amount paid with Form 4868 extension request. */
   federalExtensionPayment: Cents;
+  /** Prior-year (2024) federal AGI (Form 1040 line 11) for Form 2210 line 8 100% vs 110% safe harbor. */
+  priorYearFederalAgi?: Cents | null;
+  /** Prior-year (2024) federal total tax (Form 1040 line 24 less refundable credits) for Form 2210 line 8 safe harbor. */
+  priorYearFederalTax?: Cents | null;
+  /** True to compute the Form 2210 regular-method penalty and report it on Form 1040 line 38 (or attach Form 2210 when a Part II box applies). */
+  computeForm2210?: boolean;
+  /** Optional Form 2210 Part II boxes (`A` = full waiver, `B` = partial waiver, `D` = actual withholding dates, `E` = joint/separate filing change). */
+  form2210Boxes?: ('A' | 'B' | 'C' | 'D' | 'E')[];
 }
 
 /** Inputs that only the state return needs. */
@@ -503,6 +513,10 @@ export interface StateReturnFacts {
   priorYearApplied: Cents;
   /** Paid with a Maryland extension request (Form 502E). */
   extensionPayment: Cents;
+  /** Prior-year (2024) Maryland total tax (2024 Form 502 line 34) for Form 502UP line 9a 110% safe harbor. */
+  priorYearMdTax?: Cents | null;
+  /** True to compute and attach Maryland Form 502UP (Underpayment of Estimated Income Tax by Individuals -> Form 502 line 51). */
+  computeForm502UP?: boolean;
 }
 
 export interface TaxFacts {

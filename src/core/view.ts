@@ -106,6 +106,7 @@ const FORM_NAME_BY_ID: Record<string, string> = {
   sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
   sch3: 'Schedule 3',
+  f2210: 'Form 2210',
   schA: 'Schedule A',
   schB: 'Schedule B',
   schC: 'Schedule C',
@@ -129,6 +130,7 @@ const FORM_NAME_BY_ID: Record<string, string> = {
   md502cr: 'Maryland Form 502CR',
   md502cg: 'Maryland Form 502CG',
   md500dm: 'Maryland Form 500DM',
+  md502up: 'Maryland Form 502UP',
 };
 
 const money = (label: string, cents: Cents, extra: Partial<Row> = {}): Row => ({
@@ -179,7 +181,8 @@ function stateCards(s: StateResult | null): Card[] {
         fromLedger(l, 'md502.28', 'Local (county) tax'),
         fromLedger(l, 'md502.34', 'Total tax'),
         fromLedger(l, 'md502.46', 'Total payments'),
-        s.md.refund > 0 ? fromLedger(l, 'md502.48', 'Refund') : fromLedger(l, 'md502.47', 'Amount you owe'),
+        ...(l.get('md502.51') > 0 ? [fromLedger(l, 'md502.51', 'Underpayment interest (Form 502UP)')] : []),
+        s.md.refund > 0 ? fromLedger(l, 'md502.48', 'Refund') : fromLedger(l, 'md502.52', 'Amount you owe'),
       ],
     },
   ];
@@ -495,6 +498,7 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
         line(r, 'sch2.12', 'Net investment income tax'),
         line(r, 'f1040.24', 'Total tax'),
         line(r, 'f1040.33', 'Total payments'),
+        ...(r.ledger.get('f1040.38') > 0 ? [line(r, 'f1040.38', 'Estimated tax penalty (Form 2210)')] : []),
         r.refund > 0 ? line(r, 'f1040.34', 'Refund') : line(r, 'f1040.37', 'Amount you owe'),
       ],
     },

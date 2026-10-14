@@ -1,4 +1,4 @@
-import { roundToDollar, sumCents, usd, type Cents } from '../money';
+import { rateToDollar, roundToDollar, sumCents, usd, type Cents } from '../money';
 import { Ledger } from '../ledger';
 import { FED_2025 } from '../params/fed2025';
 import { MD_2025, type MdCounty, type MdParams } from '../params/md2025';
@@ -10,7 +10,7 @@ import { normalizeLot } from '../federal/scheduleD';
 import type { Form1099R, Owner, Person, TaxFacts } from '../../shared/facts';
 import { mdCapitalGainSurtax, mdExemptionValue, mdItemizedPhaseOut, mdLocalTax, mdStateTax } from './mdTax';
 
-export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr' | 'md500dm';
+export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr' | 'md500dm' | 'md502up';
 
 export interface MdResult {
   ledger: Ledger;
@@ -27,6 +27,7 @@ export interface MdResult {
   forms: MdFormId[];
   needsForm500DM: boolean;
   needsForm502SU: boolean;
+  needsForm502UP: boolean;
 }
 
 /** Born before January 2, 1961 = 65 or older at the end of 2025 (same test as Form 1040 line 12d). */
@@ -352,7 +353,57 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   const L47 = l.set('md502.47', Math.max(0, L40 - L46), 'Balance due');
   const L48 = l.set('md502.48', Math.max(0, L46 - L40), 'Overpayment');
   l.set('md502.50', L48, 'Refund');
-  l.set('md502.52', L47, 'Total amount due');
+
+  // Form 502UP — Underpayment of Estimated Income Tax by Individuals
+  let needsForm502UP = false;
+  let L51 = 0;
+  if (sr.computeForm502UP && L34 - L41 > usd(500)) {
+    const up1 = l.set('md502up.1', L16, 'Form 502UP line 1: Total Maryland income');
+    const up2 = l.set('md502up.2', L34, 'Form 502UP line 2: 2025 Maryland and local tax');
+    const up6 = l.set('md502up.6', 0, 'Form 502UP line 6: Total refundable credits');
+    const up7 = l.set('md502up.7', up2 - up6, 'Form 502UP line 7: Balance');
+    const up8 = l.set('md502up.8', rateToDollar(up7, 900_000), 'Form 502UP line 8: 90% of line 7');
+    let up10 = up8;
+    if (sr.priorYearMdTax != null && sr.priorYearMdTax > 0) {
+      const up9a = l.set('md502up.9a', roundToDollar(sr.priorYearMdTax), 'Form 502UP line 9a: 2024 Maryland tax');
+      const up9b = l.set('md502up.9b', rateToDollar(up9a, 1_100_000), 'Form 502UP line 9b: 110% of 2024 tax');
+      up10 = l.set('md502up.10', Math.min(up8, up9b), 'Form 502UP line 10: Minimum withholding and/or estimated tax required');
+    } else {
+      up10 = l.set('md502up.10', up8, 'Form 502UP line 10: Minimum withholding and/or estimated tax required');
+    }
+
+    // Even distribution across the 4 cumulative periods (1/4, 1/2, 3/4, 4/4)
+    const pctPpm: [number, number, number, number] = [250_000, 500_000, 750_000, 1_000_000];
+    const factorsPpm: [number, number, number, number] = [19_200, 28_900, 38_100, 26_600]; // 0.0192, 0.0289, 0.0381, 0.0266
+    const whPerQ = roundToDollar(Math.round(L41 / 4));
+    const estByQ: [Cents, Cents, Cents, Cents] = [
+      roundToDollar(sr.priorYearApplied) + roundToDollar(sr.estimatedPayments[0] ?? 0),
+      roundToDollar(sr.estimatedPayments[1] ?? 0),
+      roundToDollar(sr.estimatedPayments[2] ?? 0),
+      roundToDollar(sr.estimatedPayments[3] ?? 0) + sumCents(sr.estimatedPayments.slice(4).map(roundToDollar)),
+    ];
+
+    let cumPaid = 0;
+    let totalInterest = 0;
+    for (let pIdx = 0; pIdx < 4; pIdx++) {
+      const col = pIdx + 1;
+      const l11 = l.set(`md502up.11.p${col}`, rateToDollar(up1, pctPpm[pIdx]!), `Form 502UP line 11 period ${col}`);
+      const l13 = l.set(`md502up.13.p${col}`, rateToDollar(up10, pctPpm[pIdx]!), `Form 502UP line 13 period ${col}`);
+      cumPaid += (pIdx < 3 ? whPerQ : L41 - 3 * whPerQ) + estByQ[pIdx]!;
+      const l14 = l.set(`md502up.14.p${col}`, cumPaid, `Form 502UP line 14 period ${col}`);
+      const l15 = l.set(`md502up.15.p${col}`, Math.max(0, l13 - l14), `Form 502UP line 15 underpayment period ${col}`);
+      const l17 = l.set(`md502up.17.p${col}`, rateToDollar(l15, factorsPpm[pIdx]!), `Form 502UP line 17 interest period ${col}`);
+      totalInterest += l17;
+      void l11;
+    }
+
+    L51 = l.set('md502up.18', totalInterest, 'Form 502UP line 18 total underpayment interest');
+    if (L51 > 0) {
+      needsForm502UP = true;
+      l.set('md502.51', L51, 'Interest charges for underestimated tax (Form 502UP)');
+    }
+  }
+  l.set('md502.52', L47 + L51, 'Total amount due');
 
   const rule = p.local[county];
   const localRatePrinted = rule.kind === 'flat' ? String(Math.round(rule.rate / 100)).padStart(3, '0') : null;
@@ -362,19 +413,21 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   if (L24 > 0) forms.push('md502cr');
   if (subjectToSurtax > 0) forms.push('md502cg');
   if (needsForm500DM) forms.push('md500dm');
+  if (needsForm502UP) forms.push('md502up');
   return {
     ledger: l,
     itemizing,
     totalTax: L40,
     totalPayments: L46,
     refund: L48,
-    amountOwed: L47,
+    amountOwed: L47 + L51,
     localRatePrinted,
     exemptions: { you, spouse, age65, blind, extra, total: (spouse ? 2 : 1) + extra },
     pensionExclusion: { you: ret.youExcluded > 0, spouse: ret.spouseExcluded > 0 },
     forms,
     needsForm500DM,
     needsForm502SU: L13 > 0,
+    needsForm502UP,
   };
 }
 

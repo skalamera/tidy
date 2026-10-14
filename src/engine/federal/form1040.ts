@@ -18,6 +18,7 @@ import { qdcgWorksheet } from './qdcg';
 import { taxOnOrdinaryIncome } from './taxComputation';
 import { form8959 } from './form8959';
 import { form8960 } from './form8960';
+import { computeForm2210, type Form2210Result } from './form2210';
 import { schedule3 } from './schedule3';
 import { amtScreen } from './amtScreen';
 import { is65OrOlder, retirementDistributions, schedule1A, socialSecurityWorksheet } from './retirement';
@@ -28,6 +29,7 @@ export type FederalFormId =
   | 'sch1A'
   | 'sch2'
   | 'sch3'
+  | 'f2210'
   | 'schA'
   | 'schB'
   | 'schC'
@@ -83,6 +85,8 @@ export interface FederalResult {
   scheduleE: ScheduleEOutput;
   /** Form 8995 / 8995-A QBI computation details. */
   qbi: Form8995Result;
+  /** Form 2210 underpayment penalty computation details. */
+  form2210: Form2210Result;
 }
 
 /** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
@@ -251,17 +255,29 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L33 = l.set('f1040.33', L25d + L26 + L32, 'Total payments', 'Lines 25d + 26 + 32');
   const L34 = l.set('f1040.34', Math.max(0, L33 - L24), 'Overpaid', 'Line 33 − line 24');
   l.set('f1040.35a', L34, 'Refund');
-  const L37 = l.set('f1040.37', Math.max(0, L24 - L33), 'Amount you owe', 'Line 24 − line 33');
+  const f2210 = computeForm2210(
+    f,
+    {
+      line22TaxAfterCredits: L22,
+      line2OtherTaxes: S2_21,
+      line3RefundableCredits: 0,
+      line6Withholding: L25d + l.get('sch3.11'),
+    },
+    l,
+  );
+  const L38 = l.set('f1040.38', f2210.penalty, 'Estimated tax penalty (Form 2210)');
+  const L37 = l.set('f1040.37', Math.max(0, L24 - L33) + L38, 'Amount you owe', 'Line 24 − line 33 + line 38');
 
   const foreign = f.foreignAccounts.hasForeignAccount === true || f.foreignAccounts.foreignTrust === true;
   // Attachment Sequence No. order:
-  // 1040, Sch 1 (01), Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), Sch C (09), Sch D (12), 8949 (12A),
-  // Sch SE (17), 4797 (27), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72), 8829 (176), 7206 (206).
+  // 1040, Sch 1 (01), Sch 1-A (01A), Sch 2 (02), Sch 3 (03), 2210 (06), Sch A (07), Sch B (08), Sch C (09), Sch D (12), 8949 (12A),
+  // Sch E (13), Sch SE (17), 4797 (27), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72), 8582 (858), 8829 (176), 4562 (179), 7203 (203), 7206 (206).
   const forms: FederalFormId[] = ['f1040'];
   if (biz.needsSchedule1 || schE.needsScheduleE) forms.push('sch1');
   if (L13b > 0) forms.push('sch1A');
   if (S2_3 > 0 || S2_21 > 0) forms.push('sch2');
   if (s3.nonrefundableCredits > 0 || s3.otherPayments > 0) forms.push('sch3');
+  if (f2210.needsForm2210) forms.push('f2210');
   if (itemizing) forms.push('schA');
   if (L2b > p.scheduleBThreshold || L3b > p.scheduleBThreshold || foreign) forms.push('schB');
   if (biz.needsScheduleC) forms.push('schC');
@@ -311,5 +327,6 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     business: biz,
     scheduleE: schE,
     qbi,
+    form2210: f2210,
   };
 }

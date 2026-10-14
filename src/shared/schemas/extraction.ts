@@ -260,6 +260,7 @@ export const PriorYearExtraction = z.object({
   agi: Amount,
   totalTax: Amount,
   appliedToNextYear: Amount.describe('Form 1040 line 36: overpayment applied to next year’s estimated tax.'),
+  stateTotalTax: Amount.optional().describe('Maryland Form 502 line 34: total Maryland and local tax.'),
   stateBalanceDue: Amount.describe('Amount owed on the state return (paid in the following year).'),
   stateAppliedToNextYear: Amount.describe('Maryland overpayment applied to next year’s estimated tax (Form 502 line 49).'),
   payers: z.array(

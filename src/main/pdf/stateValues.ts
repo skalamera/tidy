@@ -2,7 +2,7 @@ import type { Cents } from '../../engine/money';
 import { ageAtEndOf2025, is65, type MdFormId, type MdResult } from '../../engine/md/form502';
 import type { TaxFacts } from '../../shared/facts';
 import { plainAmount, type FillValues } from './fill';
-import { MD500DM_2025, MD502CG_2025, MD502CR_2025, MD502R_2025, MD502SU_2025, MD502_2025 } from './maps/md2025';
+import { MD500DM_2025, MD502CG_2025, MD502CR_2025, MD502R_2025, MD502SU_2025, MD502UP_2025, MD502_2025 } from './maps/md2025';
 import type { FormMap } from './maps/federal2025';
 import type { Ledger } from '../../engine/ledger';
 
@@ -13,6 +13,7 @@ export const STATE_MAPS: Record<MdFormId, FormMap> = {
   md502r: MD502R_2025,
   md502cr: MD502CR_2025,
   md500dm: MD500DM_2025,
+  md502up: MD502UP_2025,
 };
 
 function ledgerText(map: FormMap, l: Ledger): Record<string, string> {
@@ -63,6 +64,14 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
     };
   }
 
+  if (id === 'md502up') {
+    text['md502up.12.p1'] = '25.00';
+    text['md502up.12.p2'] = '50.00';
+    text['md502up.12.p3'] = '75.00';
+    text['md502up.12.p4'] = '100.00';
+    return { text, checks: [] };
+  }
+
   if (id !== 'md502') return { text, checks: [] };
 
   const sub = f.residency.mdSubdivision;
@@ -90,8 +99,13 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
   codes.forEach((c, idx) => {
     text[`md502.13.code${idx + 1}`] = c;
   });
-  for (const line of ['41', '43', '46', '47', '48', '50', '52']) text[`md502.${line}.cents`] = cents(md.ledger.get(`md502.${line}`));
+  for (const line of ['41', '43', '46', '47', '48', '50', '51', '52']) text[`md502.${line}.cents`] = cents(md.ledger.get(`md502.${line}`));
   const checks = ['exemptYou'];
+  if (md.needsForm502UP && md.ledger.get('md502.51') > 0) {
+    checks.push('attaching502UP');
+    text['md502.51.line18'] = plainAmount(md.ledger.get('md502.51'));
+    text['md502.51.line18.cents'] = '00';
+  }
   if (md.exemptions.spouse) checks.push('exemptSpouse');
   if (is65(f.taxpayer.dateOfBirth)) checks.push('age65You');
   if (md.exemptions.spouse && is65(f.spouse?.dateOfBirth)) checks.push('age65Spouse');
