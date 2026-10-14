@@ -1125,8 +1125,30 @@ const f2210: FormMap = {
   }),
 };
 
+const f1040v: FormMap = {
+  template: 'forms/2025/f1040v.pdf',
+  numbers: 'irs',
+  pages: [0],
+  text: at(P1, {
+    ssn: 'f1_1[0]',
+    spouseSsn: 'f1_2[0]',
+    'f1040v.3': 'f1_3[0]',
+    firstName: 'f1_5[0]',
+    lastName: 'f1_6[0]',
+    spouseFirstName: 'f1_7[0]',
+    spouseLastName: 'f1_8[0]',
+    street: 'f1_9[0]',
+    apt: 'f1_10[0]',
+    city: 'f1_11[0]',
+    state: 'f1_12[0]',
+    zip: 'f1_13[0]',
+  }),
+  checks: {},
+};
+
 export const FEDERAL_MAPS: Record<FederalFormId, FormMap> = {
   f1040,
+  f1040v,
   sch1,
   sch1A,
   sch2,

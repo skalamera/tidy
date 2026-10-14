@@ -86,6 +86,6 @@ describe('Form 1040 golden scenarios (TY2025)', () => {
       'f1040.37': 14_102,
     });
     expect(r.amountOwed).toBe(usd(14_102));
-    expect(r.forms).toEqual(['f1040', 'sch2', 'sch3', 'schA', 'schB', 'f8959', 'f8960']);
+    expect(r.forms).toEqual(['f1040', 'sch2', 'sch3', 'schA', 'schB', 'f8959', 'f8960', 'f1040v']);
   });
 });

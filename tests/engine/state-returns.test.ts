@@ -45,6 +45,6 @@ describe('Form 502 (2025)', () => {
       'md502.48': 0,
     });
     expect(md.localRatePrinted).toBe('320');
-    expect(md.forms).toEqual(['md502', 'md502su', 'md502cg']);
+    expect(md.forms).toEqual(['md502', 'md502su', 'md502cg', 'mdpv']);
   });
 });

@@ -11,6 +11,7 @@ import { STATE_MAPS, mdValues } from './stateValues';
 
 const FORM_TITLE: Record<FederalFormId, string> = {
   f1040: 'Form 1040',
+  f1040v: 'Form 1040-V',
   sch1: 'Schedule 1',
   sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',

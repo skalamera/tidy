@@ -20,6 +20,7 @@ fetch f1040sc.pdf https://www.irs.gov/pub/irs-prior/f1040sc--2025.pdf
 fetch f1040sd.pdf https://www.irs.gov/pub/irs-prior/f1040sd--2025.pdf
 fetch f1040se.pdf https://www.irs.gov/pub/irs-prior/f1040se--2025.pdf
 fetch f1040sse.pdf https://www.irs.gov/pub/irs-prior/f1040sse--2025.pdf
+fetch f1040v.pdf https://www.irs.gov/pub/irs-prior/f1040v--2025.pdf
 fetch f2210.pdf https://www.irs.gov/pub/irs-prior/f2210--2025.pdf
 fetch f4562.pdf https://www.irs.gov/pub/irs-prior/f4562--2025.pdf
 fetch f4797.pdf https://www.irs.gov/pub/irs-prior/f4797--2025.pdf
@@ -39,6 +40,7 @@ fetch md502cr.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/for
 fetch md502r.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/502r.pdf
 fetch md502su.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/502su.pdf
 fetch md502up.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/502up.pdf
+fetch mdpv.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/PV.pdf
 
 cd "$DIR"
 shasum -a 256 -c <<'SUMS'
@@ -53,6 +55,7 @@ ddf401dbe060467d39f90ad2abf645df1de31512821a150dc68a3882bbf19716  f1040sc.pdf
 90564c8b7e49280363612639b804d113ebedb516c2e87c70649f29c844da1d2e  f1040sd.pdf
 c5e2c8fa0ec5ee9153a0167734df634afe0ea8bb8483040766e5f4b1b12780f3  f1040se.pdf
 05bc2b3e1dfca65d8c6fc6d652af4fa3736e953c6575d6e9f82590484677d347  f1040sse.pdf
+2426bb330ac54b765b32fbc3eceb878544aa333a3a823e1170aa8261a40fd251  f1040v.pdf
 6899ce672648b280bf00ab47200f1b0fbf40368cfbf137df507b945b8577159a  f2210.pdf
 c05f9d1f5e26b1b21e18b0a13adbbcd3d568bb9f3ca53bd7bba7c795c7799b4a  f4562.pdf
 e8ab787f2caab6a5f22894e4d13585afafaefcbc59428b70e590a84ea8cf9b54  f4797.pdf
@@ -72,4 +75,5 @@ f26196b27325dd9dc688fe5b3ec6ae2b1d445a1e01fa6cecc389c2de94f959ca  md500dm.pdf
 7205c4ec7b65460bfd6e1bab8dbd269d8dad308d537bc3980e1224a78d8be029  md502r.pdf
 c00958675a96bed7317d77785459958294bd84f7e193fc7e0b28f18cb1d99fe0  md502su.pdf
 4f2b10661a071fe8aa1d4329da5d08a20c00554c40f7ae6fbc9fa4a0694e8510  md502up.pdf
+f3e0e4addf569925640af009e80a7c05fdadf46cb162e995cdf411d44f756bd3  mdpv.pdf
 SUMS

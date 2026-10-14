@@ -51,7 +51,7 @@ const byStatus = <T>(single: T, mfj: T, mfs: T, hoh: T, qss: T): ByStatus<T> => 
  *  Sources: Rev. Proc. 2024-40 (brackets, capital gains, AMT); Form 1040 (2025) p.2 (standard deduction after OBBBA);
  *  Schedule A (2025) instructions, State and Local Tax Deduction Worksheet; Forms 8959/8960 (2025). */
 export const FED_2025 = {
-  taxYear: 2025,
+  taxYear: 2025 as 2025 | 2026,
   schedules: byStatus(SINGLE, MFJ, MFS, HOH, MFJ),
   standardDeduction: byStatus(usd(15_750), usd(31_500), usd(15_750), usd(23_625), usd(31_500)),
   additionalStandardDeduction65OrBlind: {
@@ -116,6 +116,18 @@ export const FED_2025 = {
     magiThreshold: usd(500_000),
     magiThresholdMfs: usd(250_000),
     phaseDownRate: pct('30'),
+  },
+  /** OBBBA (2025 vs 2026) charitable and itemized deduction rules. */
+  charitable: {
+    /** 2026+ above-the-line / non-itemizer cash charitable deduction cap (§70424: $1,000 single/MFS/HOH, $2,000 MFJ/QSS; $0 in 2025). */
+    nonItemizerCap: byStatus(usd(0), usd(0), usd(0), usd(0), usd(0)),
+    /** 2026+ floor on itemized charitable gifts as a rate of AGI (§70425(a): 0.5% in 2026, 0% in 2025). */
+    itemizedFloorRate: pct('0'),
+  },
+  /** 2026+ limit on the value of itemized deductions for the 37% bracket (§70111: 2/37 reduction above the 37% bracket threshold; 0 in 2025). */
+  itemizedTopBracketLimit: {
+    enabled: false as boolean,
+    bracket37Start: byStatus(usd(626_350), usd(751_600), usd(375_800), usd(626_350), usd(751_600)),
   },
   niit: { rate: pct('3.8'), threshold: byStatus(usd(200_000), usd(250_000), usd(125_000), usd(200_000), usd(250_000)) },
   additionalMedicare: {

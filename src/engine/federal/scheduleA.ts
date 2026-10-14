@@ -57,7 +57,13 @@ export function scheduleA(
   const L11 = l.set('schA.11', it.charityCash, 'Gifts by cash or check');
   const L12 = l.set('schA.12', it.charityNonCash, 'Gifts other than cash');
   const L13 = l.set('schA.13', it.charityCarryover, 'Carryover from prior year');
-  const L14 = l.set('schA.14', L11 + L12 + L13, 'Total gifts to charity');
+  const rawCharity = L11 + L12 + L13;
+  // 2026+ OBBBA §70425(a): 0.5%-of-AGI floor on itemized charitable contributions
+  const charityFloor = p.charitable.itemizedFloorRate > 0 ? rateToDollar(Math.max(0, agi), p.charitable.itemizedFloorRate) : 0;
+  if (charityFloor > 0 && rawCharity > 0) {
+    l.set('schA.14.floor', charityFloor, '0.5% of AGI floor on charitable contributions (OBBBA §70425)');
+  }
+  const L14 = l.set('schA.14', Math.max(0, rawCharity - charityFloor), 'Total gifts to charity');
 
   return l.set('schA.17', L4 + L7 + L10 + L14, 'Total itemized deductions');
 }

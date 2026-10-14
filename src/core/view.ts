@@ -102,6 +102,7 @@ const FORM_NAME: Record<string, string> = {
 
 const FORM_NAME_BY_ID: Record<string, string> = {
   f1040: 'Form 1040',
+  f1040v: 'Form 1040-V',
   sch1: 'Schedule 1',
   sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
@@ -131,6 +132,7 @@ const FORM_NAME_BY_ID: Record<string, string> = {
   md502cg: 'Maryland Form 502CG',
   md500dm: 'Maryland Form 500DM',
   md502up: 'Maryland Form 502UP',
+  mdpv: 'Maryland Form PV',
 };
 
 const money = (label: string, cents: Cents, extra: Partial<Row> = {}): Row => ({

@@ -288,3 +288,37 @@ export const MD502UP_2025: FormMap = {
   },
   checks: {},
 };
+
+export const MDPV_2025: FormMap = {
+  template: 'forms/2025/mdpv.pdf',
+  numbers: 'plain',
+  pages: [0],
+  text: {
+    ssn: 'Text Field 1',
+    spouseSsn: 'Text Field 2',
+    firstName: 'Text Field 3',
+    lastName: 'Text Field 5',
+    spouseFirstName: 'Text Field 6',
+    spouseLastName: 'Text Field 8',
+    street: 'Text Field 9',
+    street2: 'Text Field 10',
+    city: 'Text Field 11',
+    state: 'Text Field 12',
+    zip: 'Text Field 13',
+    taxYear502: 'Text Field 16',
+    'mdpv.dollars': 'Text Field 18',
+    'mdpv.cents': 'Text Field 19',
+  },
+  checks: {},
+  choices: {
+    paymentType: {
+      field: 'Check Box 1',
+      options: {
+        estimate: 'Estimated Payment/Quarterly (502D)',
+        extension: 'Extension Payment (502E)',
+        resident502: 'Payment with resident return (502)',
+        nonresident505: 'Payment with nonresident return (505)',
+      },
+    },
+  },
+};

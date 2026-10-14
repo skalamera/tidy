@@ -1,6 +1,7 @@
 import { sumCents, roundToDollar, type Cents } from '../money';
 import { Ledger } from '../ledger';
 import { FED_2025, type FedParams } from '../params/fed2025';
+import { FED_2026 } from '../params/fed2026';
 import type { TaxFacts } from '../../shared/facts';
 import { scheduleA } from './scheduleA';
 import { scheduleB } from './scheduleB';
@@ -25,6 +26,7 @@ import { is65OrOlder, retirementDistributions, schedule1A, socialSecurityWorkshe
 
 export type FederalFormId =
   | 'f1040'
+  | 'f1040v'
   | 'sch1'
   | 'sch1A'
   | 'sch2'
@@ -89,8 +91,8 @@ export interface FederalResult {
   form2210: Form2210Result;
 }
 
-/** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
-export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalResult {
+/** Form 1040 (2025 / 2026) for the Phase-1..A7 scope. Pure: same facts in → same lines out. */
+export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? FED_2026 : FED_2025): FederalResult {
   const l = new Ledger();
 
   // Income (page 1)
@@ -165,10 +167,36 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
       ? p.additionalStandardDeduction65OrBlind.singleOrHoh
       : p.additionalStandardDeduction65OrBlind.marriedOrQss;
   const standard = p.standardDeduction[f.filingStatus] + extraBoxes * extraPerBox;
-  const itemized = scheduleA(f, L11b, p, l, biz.homeOfficeScheduleAReduction);
-  const itemizing = f.forceItemize || itemized > standard;
+  const rawItemized = scheduleA(f, L11b, p, l, biz.homeOfficeScheduleAReduction);
+  const seniorDed13b = schedule1A(f, L11b, p, l);
+
+  // 2026+ OBBBA §70111: 2/37 reduction on itemized deductions for taxable income in the 37% bracket (capping tax benefit at 35%)
+  let itemized = rawItemized;
+  if (p.itemizedTopBracketLimit.enabled && rawItemized > 0) {
+    const start37 = p.itemizedTopBracketLimit.bracket37Start[f.filingStatus];
+    const tiBeforeItemizedLimit = Math.max(0, L11b - rawItemized - seniorDed13b);
+    const excessOver37 = Math.max(0, tiBeforeItemizedLimit - start37);
+    if (excessOver37 > 0) {
+      const reduction = roundToDollar(Math.round((Math.min(rawItemized, excessOver37) * 2) / 37));
+      l.set('schA.17.limit37', reduction, '37% bracket itemized deduction reduction (OBBBA §70111, 2/37 rule)');
+      itemized = l.set('schA.17', Math.max(0, rawItemized - reduction), 'Total itemized deductions (after 37% bracket limit)');
+    }
+  }
+
+  // 2026+ OBBBA §70424: Non-itemizer cash charitable deduction (up to $1,000 single/MFS/HOH, $2,000 MFJ/QSS)
+  const nonItemizerCharityCap = p.charitable.nonItemizerCap[f.filingStatus];
+  const nonItemizerCharity = nonItemizerCharityCap > 0 ? Math.min(roundToDollar(f.itemized.charityCash), nonItemizerCharityCap) : 0;
+
+  const itemizing = f.forceItemize || itemized > standard + nonItemizerCharity;
   const L12e = l.set('f1040.12e', itemizing ? itemized : standard, itemizing ? 'Itemized deductions (Schedule A)' : 'Standard deduction');
-  const L13b = l.set('f1040.13b', schedule1A(f, L11b, p, l), 'Additional deductions (Schedule 1-A)');
+  if (!itemizing && nonItemizerCharity > 0) {
+    l.set('f1040.12b', nonItemizerCharity, 'Charitable contributions if you take the standard deduction (OBBBA §70424)');
+  }
+  const L13b = l.set(
+    'f1040.13b',
+    seniorDed13b + (!itemizing ? nonItemizerCharity : 0),
+    'Additional deductions (Schedule 1-A / non-itemizer charitable)',
+  );
   const k1QbiSum = sumCents(schE.qbiEntries.map((e) => e.qbi));
   const k1W2WagesSum = sumCents(schE.qbiEntries.map((e) => e.w2Wages));
   const qbi = computeForm8995(
@@ -295,6 +323,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   if (schE.needsForm4562) forms.push('f4562');
   if (schE.needsForm7203) forms.push('f7203');
   if (biz.needsForm7206) forms.push('f7206');
+  if (L37 > 0) forms.push('f1040v');
 
   const carryoverTo2026 = capitalLossCarryoverTo2026({
     agi: L11b,

@@ -10,7 +10,7 @@ import { normalizeLot } from '../federal/scheduleD';
 import type { Form1099R, Owner, Person, TaxFacts } from '../../shared/facts';
 import { mdCapitalGainSurtax, mdExemptionValue, mdItemizedPhaseOut, mdLocalTax, mdStateTax } from './mdTax';
 
-export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr' | 'md500dm' | 'md502up';
+export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr' | 'md500dm' | 'md502up' | 'mdpv';
 
 export interface MdResult {
   ledger: Ledger;
@@ -414,6 +414,7 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   if (subjectToSurtax > 0) forms.push('md502cg');
   if (needsForm500DM) forms.push('md500dm');
   if (needsForm502UP) forms.push('md502up');
+  if (L47 + L51 > 0) forms.push('mdpv');
   return {
     ledger: l,
     itemizing,

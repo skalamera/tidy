@@ -530,7 +530,7 @@ export interface StateReturnFacts {
 }
 
 export interface TaxFacts {
-  taxYear: 2025;
+  taxYear: 2025 | 2026;
   filingStatus: FilingStatus;
   taxpayer: Person;
   spouse: Person | null;

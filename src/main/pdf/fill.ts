@@ -250,6 +250,27 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     }
   }
 
+  if (id === 'f1040v') {
+    delete text.name;
+    const t = f.taxpayer;
+    const s = f.spouse;
+    text.ssn = dashedSsn(t.ssn);
+    text.firstName = t.firstName;
+    text.lastName = t.lastName;
+    if (s && f.filingStatus === 'mfj') {
+      text.spouseSsn = dashedSsn(s.ssn);
+      text.spouseFirstName = s.firstName;
+      text.spouseLastName = s.lastName;
+    }
+    text.street = f.address.street;
+    if (f.address.apt) text.apt = f.address.apt;
+    text.city = f.address.city;
+    text.state = f.address.state;
+    text.zip = f.address.zip;
+    text['f1040v.3'] = `${formAmount(r.amountOwed)}.00`;
+    return { values: { text, checks }, statements };
+  }
+
   if (id === 'f2210') {
     for (const [k, val] of Object.entries(r.form2210.printed)) {
       if (typeof val === 'boolean') {
