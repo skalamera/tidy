@@ -85,6 +85,8 @@ export interface ScheduleEOutput {
   netScheduleEIncome: Cents;
   /** Passive loss carryover to 2026 (positive magnitude). */
   passiveLossCarryoverTo2026: Cents;
+  /** Per-activity unallowed passive loss carryovers to 2026. */
+  passiveLossCarryoverByActivity: { name: string; unallowedLoss: Cents }[];
   /** S-corp excess distribution capital gain from Form 7203 line 6 note -> Schedule D line 12. */
   sCorpExcessDistributionGain: Cents;
   /** K-1 net Section 1231 gain (loss) after basis/passive limits -> Form 4797 Part I line 2. */
@@ -250,6 +252,7 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
       needsForm7203: false,
       netScheduleEIncome: 0,
       passiveLossCarryoverTo2026: 0,
+      passiveLossCarryoverByActivity: [],
       sCorpExcessDistributionGain: 0,
       k1NetSection1231Gain: 0,
       k1SelfEmploymentEarnings: { taxpayer: 0, spouse: 0 },
@@ -777,6 +780,9 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
     needsForm7203,
     netScheduleEIncome,
     passiveLossCarryoverTo2026,
+    passiveLossCarryoverByActivity: passiveActivities
+      .filter((a) => a.unallowedLoss > 0)
+      .map((a) => ({ name: a.name, unallowedLoss: a.unallowedLoss })),
     sCorpExcessDistributionGain,
     k1NetSection1231Gain,
     k1SelfEmploymentEarnings,

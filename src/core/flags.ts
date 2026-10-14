@@ -170,5 +170,32 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       detail: 'The foreign tax credit isn’t claimed yet, so this return may overstate your tax by up to that amount.',
     });
   }
+  if ((f.carryovers?.amtCredit ?? 0) > 0) {
+    flags.push({
+      id: 'carryover-amt-credit',
+      sectionId: 'federal_summary',
+      severity: 'blocker',
+      title: `Prior-year AMT credit carryover (${formatUsd(f.carryovers!.amtCredit!)}) needs Form 8801`,
+      detail: 'Your 2024 return carried forward a minimum tax credit on Form 8801, which Tidy doesn’t prepare yet.',
+    });
+  }
+  if ((f.carryovers?.foreignTaxCredit ?? 0) > 0) {
+    flags.push({
+      id: 'carryover-ftc',
+      sectionId: 'investments',
+      severity: 'warning',
+      title: `You have a ${formatUsd(f.carryovers!.foreignTaxCredit!)} foreign tax credit carryover`,
+      detail: 'Form 1116 carryovers aren’t claimed yet, so this return may overstate your tax by up to that amount.',
+    });
+  }
+  if ((f.carryovers?.investmentInterest ?? 0) > 0) {
+    flags.push({
+      id: 'carryover-investment-interest',
+      sectionId: 'deductions',
+      severity: 'blocker',
+      title: `Prior-year investment interest carryover (${formatUsd(f.carryovers!.investmentInterest!)}) needs Form 4952`,
+      detail: 'Your 2024 return carried forward disallowed investment interest expense on Form 4952, which Tidy doesn’t prepare yet.',
+    });
+  }
   return flags;
 }

@@ -4,6 +4,7 @@ import type { Evidence, Owner, StateCode, TaxFacts } from '../shared/facts';
 import { MD_LOCAL_2025, type MdCounty } from '../engine/params/md2025';
 import { amountCents } from './amount';
 import { ssnDigits } from '../shared/answers';
+import { sameIssuer } from './expected';
 import { applyOverrides } from './overrides';
 import { RULES } from './questionRules';
 
@@ -32,6 +33,11 @@ export function emptyFacts(): TaxFacts {
       capitalLossLongTerm: 0,
       qbiLoss: 0,
       reitPtpLoss: 0,
+      charitable: 0,
+      passiveLoss: 0,
+      amtCredit: 0,
+      foreignTaxCredit: 0,
+      investmentInterest: 0,
     },
     hasNondeductibleIraBasis: null,
     itemized: {
@@ -133,12 +139,59 @@ export function deriveFacts(state: AppState): TaxFacts {
     if (f.stateReturn.priorYearApplied > 0) {
       f.itemized.stateIncomeTaxPayments.push({ label: '2024 state refund applied to 2025', amount: f.stateReturn.priorYearApplied });
     }
+    const charCarry = Math.abs(amountCents(prior.carryovers.charitable));
     f.carryovers = {
       capitalLossShortTerm: Math.abs(amountCents(prior.carryovers.capitalLossShortTerm)),
       capitalLossLongTerm: Math.abs(amountCents(prior.carryovers.capitalLossLongTerm)),
       qbiLoss: prior.carryovers.qbiLoss ? Math.abs(amountCents(prior.carryovers.qbiLoss)) : 0,
       reitPtpLoss: prior.carryovers.reitPtpLoss ? Math.abs(amountCents(prior.carryovers.reitPtpLoss)) : 0,
+      charitable: charCarry,
+      passiveLoss: Math.abs(amountCents(prior.carryovers.passiveLoss)),
+      amtCredit: Math.abs(amountCents(prior.carryovers.amtCredit)),
+      foreignTaxCredit: Math.abs(amountCents(prior.carryovers.foreignTaxCredit)),
+      investmentInterest: Math.abs(amountCents(prior.carryovers.investmentInterest)),
     };
+    if (charCarry > 0) {
+      f.itemized.charityCarryover = charCarry;
+    }
+    if (prior.rentals && prior.rentals.length > 0) {
+      f.rentals = prior.rentals.map((r, idx) => {
+        const matchedPassive = (prior.passiveActivityCarryovers ?? []).find((p) => sameIssuer(p.activityName, r.address));
+        const priorPassive = r.priorUnallowedPassiveLoss
+          ? Math.abs(amountCents(r.priorUnallowedPassiveLoss))
+          : matchedPassive
+            ? Math.abs(amountCents(matchedPassive.unallowedLoss))
+            : 0;
+        return {
+          id: `rental-prior-${idx}`,
+          owner: 'taxpayer',
+          address: r.address,
+          propertyType: (r.propertyType ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+          fairRentalDays: r.fairRentalDays ?? 365,
+          personalUseDays: r.personalUseDays ?? 0,
+          activeParticipation: r.activeParticipation ?? true,
+          priorUnallowedPassiveLoss: priorPassive,
+          rentsReceived: 0,
+          expenses: {},
+          depreciableAssets: (r.depreciableAssets ?? []).map((a) => ({
+            description: a.description,
+            placedInService: a.placedInService,
+            basis: amountCents(a.basis),
+            recoveryPeriodYears: a.recoveryPeriodYears ?? 27.5,
+            placedInServiceIn2025: a.placedInService.endsWith('/2025'),
+          })),
+        };
+      });
+    }
+    if (prior.mdDecoupling) {
+      f.mdDecoupling = {
+        federalDepreciation: amountCents(prior.mdDecoupling.federalDepreciation),
+        mdDepreciationWithoutDecoupling: amountCents(prior.mdDecoupling.mdDepreciationWithoutDecoupling),
+        pteDecouplingModification: prior.mdDecoupling.pteDecouplingModification
+          ? amountCents(prior.mdDecoupling.pteDecouplingModification)
+          : 0,
+      };
+    }
     if (prior.scheduleC) {
       f.scheduleC = [
         {
@@ -330,6 +383,8 @@ export function deriveFacts(state: AppState): TaxFacts {
           const d = x.data;
           const dists = amountCents(d.distributions);
           const nonded = amountCents(d.nondeductibleExpenses);
+          const matchedPassive = (prior?.passiveActivityCarryovers ?? []).find((p) => sameIssuer(p.activityName, d.entityName));
+          const priorPassive = matchedPassive ? Math.abs(amountCents(matchedPassive.unallowedLoss)) : 0;
           f.k1s!.push({
             id,
             owner: guessOwner(f, d.recipientName, d.recipientSsnLast4),
@@ -337,6 +392,7 @@ export function deriveFacts(state: AppState): TaxFacts {
             entityName: d.entityName,
             entityEin: d.entityEin ?? '',
             isMaterialParticipation: false,
+            ...(priorPassive > 0 ? { priorUnallowedPassiveLoss: priorPassive } : {}),
             ordinaryBusinessIncome: amountCents(d.ordinaryBusinessIncome),
             netRentalRealEstateIncome: amountCents(d.netRentalRealEstateIncome),
             otherNetRentalIncome: amountCents(d.otherNetRentalIncome),

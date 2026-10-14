@@ -173,6 +173,16 @@ export interface Carryovers {
   qbiLoss: Cents;
   /** Positive magnitude of qualified REIT dividends / PTP loss carryforward from 2024 (Form 8995 line 7 / 8995-A line 29). */
   reitPtpLoss: Cents;
+  /** Positive magnitude of charitable contribution carryover from 2024 (Schedule A line 13). */
+  charitable?: Cents;
+  /** Positive magnitude of total unallowed passive activity loss carryover from 2024 (Form 8582). */
+  passiveLoss?: Cents;
+  /** Positive magnitude of prior-year minimum tax credit carryover from 2024 (Form 8801). */
+  amtCredit?: Cents;
+  /** Positive magnitude of foreign tax credit carryover from 2024 (Form 1116 Schedule B). */
+  foreignTaxCredit?: Cents;
+  /** Positive magnitude of disallowed investment interest expense carryover from 2024 (Form 4952 line 2). */
+  investmentInterest?: Cents;
 }
 
 export interface Form1099Nec {

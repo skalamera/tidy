@@ -280,6 +280,48 @@ export const PriorYearExtraction = z.object({
     })
     .nullable()
     .optional(),
+  rentals: z
+    .array(
+      z.object({
+        address: z.string(),
+        propertyType: z.number().int().min(1).max(8).optional(),
+        fairRentalDays: z.number().int().optional(),
+        personalUseDays: z.number().int().optional(),
+        activeParticipation: z.boolean().optional(),
+        priorUnallowedPassiveLoss: Amount.optional().describe(
+          'Unallowed passive loss carried forward from this year’s Form 8582 worksheet to the next year for this rental property.',
+        ),
+        depreciableAssets: z
+          .array(
+            z.object({
+              description: z.string(),
+              placedInService: z.string().describe('MM/YYYY'),
+              basis: Amount,
+              recoveryPeriodYears: z.number().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .optional(),
+  passiveActivityCarryovers: z
+    .array(
+      z.object({
+        activityName: z.string(),
+        unallowedLoss: Amount,
+      }),
+    )
+    .optional()
+    .describe('Per-activity unallowed passive losses carried forward to the next year on Form 8582 Worksheets 5, 6, and 7.'),
+  mdDecoupling: z
+    .object({
+      federalDepreciation: Amount,
+      mdDepreciationWithoutDecoupling: Amount,
+      pteDecouplingModification: Amount.optional(),
+    })
+    .nullable()
+    .optional()
+    .describe('Maryland Form 500DM decoupling modifications on the prior-year return.'),
   carryovers: z.object({
     capitalLossShortTerm: Amount,
     capitalLossLongTerm: Amount,

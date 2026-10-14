@@ -44,6 +44,9 @@ export const FORM_PROMPTS: Record<ExtractForm, string> = {
   prior_year:
     'This is a previously filed tax return package. Read the federal Form 1040 with its schedules and the state return if present. ' +
     'payers: every W-2 employer, every payer listed on Schedule B, every partnership or S corporation on Schedule E Part II, and mortgage lenders. ' +
-    'carryovers: read the Capital Loss Carryover Worksheet, Form 8582, Form 8801, Form 1116, Form 4952 and charitable carryover statements. ' +
+    'rentals: every rental property on Schedule E Part I with its address, property type, depreciable assets (placedInService MM/YYYY and basis from the depreciation schedule / Form 4562), and any unallowed passive loss carried forward from Form 8582. ' +
+    'passiveActivityCarryovers: per-activity unallowed passive losses carried forward to the next year from Form 8582 Worksheets 5, 6, and 7. ' +
+    'mdDecoupling: Maryland Form 500DM decoupling modifications (federalDepreciation, mdDepreciationWithoutDecoupling, pteDecouplingModification) if present. ' +
+    'carryovers: read the Capital Loss Carryover Worksheet, Form 8582, Form 8995 / 8995-A (qbiLoss, reitPtpLoss), Form 8801, Form 1116, Form 4952 and charitable carryover statements. ' +
     'appliedToNextYear is Form 1040 line 36. stateTotalTax is Maryland Form 502 line 34. stateBalanceDue is the amount owed on the state return.',
 };
