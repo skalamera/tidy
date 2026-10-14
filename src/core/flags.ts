@@ -9,10 +9,8 @@ const LABEL: Record<string, string> = {
   k1_1065: 'partnership K-1s',
   k1_1120s: 'S corporation K-1s',
   k1_1041: 'trust K-1s',
-  f1099_r: 'retirement distributions (1099-R)',
   f1099_misc: '1099-MISC income',
   f1099_nec: '1099-NEC income',
-  ssa_1099: 'Social Security benefits',
   prior_year_state_return: 'a state return on its own',
   brokerage_statement: 'brokerage statements',
   other: 'this kind of document',
@@ -88,17 +86,50 @@ export function deriveFlags(state: AppState, f: TaxFacts, r: FederalResult): Fla
       severity: 'blocker',
       title: 'Some of your income needs forms Tidy can’t prepare yet',
       detail:
-        'Business, rental, pass-through, retirement and Social Security income, and investment sales, are on the roadmap. Until then this return would leave them out.',
+        'Business, rental, and pass-through income, and investment sales, are on the roadmap. Until then this return would leave them out.',
     });
   }
-  if (answer('senior-or-blind') === 'yes') {
+  if (f.hasNondeductibleIraBasis === true) {
     flags.push({
-      id: 'senior-or-blind',
-      sectionId: 'profile',
+      id: 'ira-basis-8606',
+      sectionId: 'wages',
       severity: 'blocker',
-      title: 'Returns for people 65 or older, or blind, aren’t supported yet',
+      title: 'Nondeductible IRA basis needs Form 8606',
       detail:
-        'They need the larger standard deduction, the senior deduction on Schedule 1-A and Maryland’s extra exemptions. That support is planned next.',
+        'Because you have after-tax basis in a traditional IRA, part of your IRA distribution is tax-free and must be figured on Form 8606, which Tidy doesn’t prepare yet.',
+    });
+  }
+  for (const dist of f.f1099R ?? []) {
+    const codes = dist.box7Codes.toUpperCase();
+    const isDirectRolloverOrRoth = /^[GHQ]/.test(codes);
+    if (dist.box2bTaxableNotDetermined && dist.box2aTaxableAmount === 0 && !isDirectRolloverOrRoth && (dist.rolloverAmount ?? 0) === 0) {
+      flags.push({
+        id: `1099r-undetermined:${dist.id}`,
+        sectionId: 'wages',
+        severity: 'blocker',
+        title: `Taxable amount not determined on ${dist.payerName} 1099-R`,
+        detail:
+          'Box 2b “Taxable amount not determined” is checked and box 2a is blank or zero. Figuring the taxable portion requires the Simplified Method or General Rule worksheet.',
+      });
+    }
+    if (/[125689AEJKLMPSTUV]/.test(codes)) {
+      flags.push({
+        id: `1099r-code:${dist.id}`,
+        sectionId: 'wages',
+        severity: 'blocker',
+        title: `1099-R distribution code “${codes}” from ${dist.payerName} needs extra forms`,
+        detail:
+          'Early distributions (code 1), excess contributions, Roth conversions, or specialized distribution codes require Form 5329 or Form 8606, which Tidy doesn’t prepare yet.',
+      });
+    }
+  }
+  if ((f.ssa1099 ?? []).reduce((s, x) => s + x.box5NetBenefits, 0) < 0) {
+    flags.push({
+      id: 'ssa-negative-benefits',
+      sectionId: 'wages',
+      severity: 'blocker',
+      title: 'Social Security repayments exceeded benefits paid',
+      detail: 'Your net Social Security benefits in box 5 are negative, which requires a special repayment calculation in Publication 915.',
     });
   }
   if (answer('has-dependents') === 'yes') {

@@ -1,4 +1,10 @@
-import type { AmountT, PriorYearExtractionT, W2ExtractionT } from '../../src/shared/schemas/extraction';
+import type {
+  AmountT,
+  F1099RExtractionT,
+  PriorYearExtractionT,
+  Ssa1099ExtractionT,
+  W2ExtractionT,
+} from '../../src/shared/schemas/extraction';
 import { reconcileQuestions } from '../../src/core/reconcile';
 import { emptyState, type AppState, type DocumentRecord, type Extraction, type FieldCheck } from '../../src/shared/state';
 
@@ -58,6 +64,45 @@ export function w2Extraction(p: Partial<W2ExtractionT> = {}): Extraction {
       box12: [],
       stateLines: [{ state: 'MD', stateWages: amt('85,000.00'), stateTax: amt('4,100.00') }],
       localLines: [],
+      ...p,
+    },
+  };
+}
+
+export function r1099Extraction(p: Partial<F1099RExtractionT> = {}): Extraction {
+  return {
+    form: 'f1099_r',
+    firstPage: 1,
+    data: {
+      payerName: 'State Retirement System',
+      payerEin: '52-1234567',
+      recipientName: 'Alex Rivera',
+      recipientSsnLast4: '0001',
+      box1GrossDistribution: amt('35,000.00'),
+      box2aTaxableAmount: amt('35,000.00'),
+      box2bTaxableNotDetermined: false,
+      box2bTotalDistribution: false,
+      box4FedWithheld: amt('3,500.00'),
+      box5EmployeeContributions: amt(null),
+      box7Codes: '7',
+      box7IraSepSimple: false,
+      stateLines: [{ state: 'MD', stateTax: amt('1,500.00'), stateDistribution: amt('35,000.00') }],
+      ...p,
+    },
+  };
+}
+
+export function ssa1099Extraction(p: Partial<Ssa1099ExtractionT> = {}): Extraction {
+  return {
+    form: 'ssa_1099',
+    firstPage: 1,
+    data: {
+      recipientName: 'Alex Rivera',
+      recipientSsnLast4: '0001',
+      box3BenefitsPaid: amt('20,000.00'),
+      box4BenefitsRepaid: amt(null),
+      box5NetBenefits: amt('20,000.00'),
+      box6FedWithheld: amt('2,000.00'),
       ...p,
     },
   };

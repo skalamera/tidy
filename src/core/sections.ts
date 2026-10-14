@@ -35,8 +35,14 @@ export const SECTIONS: SectionDef[] = [
     id: 'wages',
     title: 'Wages',
     icon: 'BriefcaseBusiness',
-    blurb: 'Pay and withholding from your W-2s.',
-    snapshot: (f, r) => ({ w2s: noEvidence(f.w2s), l: lines(r, ['f1040.1z', 'f1040.25a']) }),
+    blurb: 'Pay, retirement distributions, and Social Security.',
+    snapshot: (f, r) => ({
+      w2s: noEvidence(f.w2s),
+      r1099: noEvidence(f.f1099R ?? []),
+      ssa: noEvidence(f.ssa1099 ?? []),
+      basis: f.hasNondeductibleIraBasis ?? null,
+      l: lines(r, ['f1040.1z', 'f1040.4a', 'f1040.4b', 'f1040.5a', 'f1040.5b', 'f1040.6a', 'f1040.6b', 'f1040.25a']),
+    }),
   },
   {
     id: 'investments',
@@ -55,7 +61,7 @@ export const SECTIONS: SectionDef[] = [
     title: 'Deductions',
     icon: 'HandCoins',
     blurb: 'Standard deduction or itemizing, whichever saves more.',
-    snapshot: (f, r) => ({ it: f.itemized, l: lines(r, ['schA.5e', 'schA.17', 'f1040.12e']) }),
+    snapshot: (f, r) => ({ it: f.itemized, l: lines(r, ['schA.5e', 'schA.17', 'f1040.12e', 'f1040.13b', 'f1040.14']) }),
   },
   {
     id: 'payments',

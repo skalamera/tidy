@@ -1,8 +1,8 @@
 import type { Cents } from '../../engine/money';
-import type { MdFormId, MdResult } from '../../engine/md/form502';
+import { ageAtEndOf2025, is65, type MdFormId, type MdResult } from '../../engine/md/form502';
 import type { TaxFacts } from '../../shared/facts';
 import { plainAmount, type FillValues } from './fill';
-import { MD502CG_2025, MD502SU_2025, MD502_2025 } from './maps/md2025';
+import { MD502CG_2025, MD502CR_2025, MD502R_2025, MD502SU_2025, MD502_2025 } from './maps/md2025';
 import type { FormMap } from './maps/federal2025';
 import type { Ledger } from '../../engine/ledger';
 
@@ -10,6 +10,8 @@ export const STATE_MAPS: Record<MdFormId, FormMap> = {
   md502: MD502_2025,
   md502su: MD502SU_2025,
   md502cg: MD502CG_2025,
+  md502r: MD502R_2025,
+  md502cr: MD502CR_2025,
 };
 
 function ledgerText(map: FormMap, l: Ledger): Record<string, string> {
@@ -33,6 +35,18 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
       : {}),
   };
   Object.assign(text, names);
+
+  if (id === 'md502r') {
+    const yourAge = ageAtEndOf2025(f.taxpayer.dateOfBirth);
+    const spouseAge = f.spouse && f.filingStatus === 'mfj' ? ageAtEndOf2025(f.spouse.dateOfBirth) : null;
+    if (yourAge !== null) text.yourAge = String(yourAge);
+    if (spouseAge !== null) text.spouseAge = String(spouseAge);
+    const checks: string[] = [];
+    if (f.taxpayer.totallyDisabled) checks.push('disabledYou');
+    if (f.spouse && f.filingStatus === 'mfj' && f.spouse.totallyDisabled) checks.push('disabledSpouse');
+    return { text, checks };
+  }
+
   if (id !== 'md502') return { text, checks: [] };
 
   const sub = f.residency.mdSubdivision;
@@ -49,7 +63,7 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
     physicalZip: f.address.zip.replace(/\D/g, ''),
     physicalCounty: f.residency.mdCounty === 'Baltimore City' ? '' : (f.residency.mdCounty ?? ''),
     'md502.A.count': String((md.exemptions.you ? 1 : 0) + (md.exemptions.spouse ? 1 : 0)),
-    'md502.B.count': md.exemptions.age65 ? String(md.exemptions.age65) : '',
+    'md502.B.count': md.exemptions.extra ? String(md.exemptions.extra) : '',
     'md502.D.count': String(md.exemptions.total),
     localRate: md.localRatePrinted ?? '',
   });
@@ -57,7 +71,11 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
   for (const line of ['41', '43', '46', '47', '48', '50', '52']) text[`md502.${line}.cents`] = cents(md.ledger.get(`md502.${line}`));
   const checks = ['exemptYou'];
   if (md.exemptions.spouse) checks.push('exemptSpouse');
-  if (md.exemptions.age65 > 0 && f.taxpayer.dateOfBirth && f.taxpayer.dateOfBirth < '1961-01-02') checks.push('age65You');
-  if (md.exemptions.spouse && f.spouse?.dateOfBirth && f.spouse.dateOfBirth < '1961-01-02') checks.push('age65Spouse');
+  if (is65(f.taxpayer.dateOfBirth)) checks.push('age65You');
+  if (md.exemptions.spouse && is65(f.spouse?.dateOfBirth)) checks.push('age65Spouse');
+  if (f.taxpayer.blind) checks.push('blindYou');
+  if (md.exemptions.spouse && f.spouse?.blind) checks.push('blindSpouse');
+  if (md.pensionExclusion.you) checks.push('pensionExclusionYou');
+  if (md.pensionExclusion.spouse) checks.push('pensionExclusionSpouse');
   return { text, checks, choices: { filingStatus: f.filingStatus, deduction: md.itemizing ? 'itemized' : 'standard' } };
 }

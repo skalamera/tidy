@@ -75,6 +75,8 @@ const KIND: Record<string, string> = {
   w2: 'W-2',
   f1099_int: '1099-INT',
   f1099_div: '1099-DIV',
+  f1099_r: '1099-R',
+  ssa_1099: 'SSA-1099',
   f1099_composite: 'Brokerage 1099',
   f1098: 'Mortgage interest (1098)',
   property_tax_bill: 'Property tax',
@@ -85,6 +87,8 @@ const FORM_NAME: Record<string, string> = {
   w2: 'W-2',
   f1099_int: '1099-INT',
   f1099_div: '1099-DIV',
+  f1099_r: '1099-R',
+  ssa_1099: 'SSA-1099',
   f1099_b: '1099-B',
   k1: 'K-1',
   f1098: '1098',
@@ -92,6 +96,7 @@ const FORM_NAME: Record<string, string> = {
 
 const FORM_NAME_BY_ID: Record<string, string> = {
   f1040: 'Form 1040',
+  sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
   sch3: 'Schedule 3',
   schA: 'Schedule A',
@@ -99,7 +104,9 @@ const FORM_NAME_BY_ID: Record<string, string> = {
   f8959: 'Form 8959',
   f8960: 'Form 8960',
   md502: 'Maryland Form 502',
+  md502r: 'Maryland Form 502R',
   md502su: 'Maryland Form 502SU',
+  md502cr: 'Maryland Form 502CR',
   md502cg: 'Maryland Form 502CG',
 };
 
@@ -137,11 +144,15 @@ function stateCards(s: StateResult | null): Card[] {
       subtitle: null,
       rows: [
         fromLedger(l, 'md502.1', 'Federal adjusted gross income'),
+        ...(l.get('md502.10a') > 0 ? [fromLedger(l, 'md502.10a', 'Pension exclusion (Worksheet 13A)')] : []),
+        ...(l.get('md502.11') > 0 ? [fromLedger(l, 'md502.11', 'Social Security subtraction')] : []),
         fromLedger(l, 'md502.16', 'Maryland adjusted gross income'),
         fromLedger(l, 'md502.17', s.md.itemizing ? 'Itemized deductions' : 'Standard deduction'),
+        fromLedger(l, 'md502.19', 'Exemptions'),
         fromLedger(l, 'md502.20', 'Taxable net income'),
         fromLedger(l, 'md502.21', 'Maryland tax'),
         ...(l.get('md502.21b') > 0 ? [fromLedger(l, 'md502.21b', '2% tax on capital gains')] : []),
+        ...(l.get('md502.24') > 0 ? [fromLedger(l, 'md502.24', 'Senior tax credit (Form 502CR)')] : []),
         fromLedger(l, 'md502.28', 'Local (county) tax'),
         fromLedger(l, 'md502.34', 'Total tax'),
         fromLedger(l, 'md502.46', 'Total payments'),
@@ -239,11 +250,39 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
         ...w.localLines.map((l) => money(`${l.locality} tax withheld`, l.localTax)),
       ],
     })),
+    ...(f.f1099R ?? []).map((dist) => ({
+      id: dist.id,
+      title: dist.payerName,
+      subtitle: `${dist.owner === 'spouse' ? 'Spouse’s' : 'Your'} 1099-R · ${dist.iraSepSimple ? 'IRA / SEP / SIMPLE' : 'Pension or annuity'} (code ${dist.box7Codes || '7'})`,
+      rows: [
+        money('Gross distribution (box 1)', dist.box1GrossDistribution, { source: dist.evidence.box1GrossDistribution ?? null }),
+        money('Taxable amount (box 2a)', dist.box2aTaxableAmount, { source: dist.evidence.box2aTaxableAmount ?? null }),
+        ...(dist.qcdAmount ? [money('Qualified charitable distribution (QCD)', dist.qcdAmount)] : []),
+        ...(dist.rolloverAmount ? [money('Rolled over', dist.rolloverAmount)] : []),
+        money('Federal tax withheld (box 4)', dist.box4FedWithheld, { source: dist.evidence.box4FedWithheld ?? null }),
+        ...dist.stateLines.map((s) => money(`${s.state} tax withheld`, s.stateTax)),
+      ],
+    })),
+    ...(f.ssa1099 ?? []).map((ssa) => ({
+      id: ssa.id,
+      title: 'Social Security (SSA-1099)',
+      subtitle: ssa.owner === 'spouse' ? 'Spouse’s benefits' : 'Your benefits',
+      rows: [
+        money('Net benefits for 2025 (box 5)', ssa.box5NetBenefits, { source: ssa.evidence.box5NetBenefits ?? null }),
+        money('Federal tax withheld (box 6)', ssa.box6FedWithheld, { source: ssa.evidence.box6FedWithheld ?? null }),
+      ],
+    })),
     {
       id: 'wage-totals',
       title: 'Totals',
       subtitle: null,
-      rows: [line(r, 'f1040.1z', 'Total wages'), line(r, 'f1040.25a', 'Federal tax withheld')],
+      rows: [
+        line(r, 'f1040.1z', 'Total wages'),
+        ...(r.ledger.get('f1040.4a') > 0 ? [line(r, 'f1040.4b', 'Taxable IRA distributions')] : []),
+        ...(r.ledger.get('f1040.5a') > 0 ? [line(r, 'f1040.5b', 'Taxable pensions and annuities')] : []),
+        ...(r.ledger.get('f1040.6a') > 0 ? [line(r, 'f1040.6b', 'Taxable Social Security benefits')] : []),
+        line(r, 'f1040.25a', 'Federal tax withheld from W-2s'),
+      ],
     },
   ];
 
@@ -287,7 +326,11 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
       id: 'choice',
       title: r.itemizing ? 'You’re itemizing' : 'You’re taking the standard deduction',
       subtitle: 'We picked whichever is bigger.',
-      rows: [line(r, 'f1040.12e', 'Deduction used'), line(r, 'schA.17', 'Itemized total')],
+      rows: [
+        line(r, 'f1040.12e', 'Deduction used'),
+        line(r, 'schA.17', 'Itemized total'),
+        ...(r.ledger.get('f1040.13b') > 0 ? [line(r, 'f1040.13b', 'Enhanced senior deduction (Schedule 1-A)')] : []),
+      ],
     },
     {
       id: 'itemized',

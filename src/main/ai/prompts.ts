@@ -28,6 +28,10 @@ export const FORM_PROMPTS: Record<ExtractForm, string> = {
     'This is Form 1099-INT (Interest Income), possibly one section of a brokerage composite statement. Use the account totals, not individual securities.',
   f1099_div:
     'This is Form 1099-DIV (Dividends and Distributions), possibly one section of a brokerage composite statement. Use the account totals. Box 12 is exempt-interest dividends; box 13 is the part of box 12 from private activity bonds.',
+  f1099_r:
+    'This is Form 1099-R (Distributions From Pensions, Annuities, Retirement or Profit-Sharing Plans, IRAs, Insurance Contracts, etc.). Extract box 1 (gross distribution), box 2a (taxable amount), box 2b checkboxes (taxable amount not determined, total distribution), box 4 (federal income tax withheld), box 5 (employee contributions or insurance premiums), box 7 distribution code(s) and the IRA/SEP/SIMPLE checkbox, and every state row (boxes 14–16). If the file repeats Copy B, C and 2 of the same 1099-R, read only one copy.',
+  ssa_1099:
+    'This is Form SSA-1099 (Social Security Benefit Statement). Extract box 3 (benefits paid in 2025), box 4 (benefits repaid to SSA in 2025), box 5 (net benefits for 2025), and box 6 (voluntary federal income tax withheld).',
   f1098:
     'This is Form 1098 (Mortgage Interest Statement). Box 1 is mortgage interest received from the borrower. Real estate tax paid from escrow may be in box 10 or in an escrow summary.',
   payment:

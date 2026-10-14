@@ -26,9 +26,10 @@ export function scheduleA(f: TaxFacts, agi: Cents, p: FedParams, l: Ledger): Cen
   const L3 = l.set('schA.3', rateToDollar(L2, p.medicalFloorRate), '7.5% of AGI');
   const L4 = l.set('schA.4', Math.max(0, L1 - L3), 'Deductible medical');
 
-  const withheldStateLocal = sumCents(
-    f.w2s.flatMap((w) => [...w.stateLines.map((s) => s.stateTax), ...w.localLines.map((x) => x.localTax)]),
-  );
+  const withheldStateLocal = sumCents([
+    ...f.w2s.flatMap((w) => [...w.stateLines.map((s) => s.stateTax), ...w.localLines.map((x) => x.localTax)]),
+    ...(f.f1099R ?? []).flatMap((r) => r.stateLines.map((s) => s.stateTax)),
+  ]);
   const paidOther = sumCents(it.stateIncomeTaxPayments.map((x) => x.amount));
   const L5a = l.set('schA.5a', withheldStateLocal + paidOther, 'State and local income taxes');
   const L5b = l.set('schA.5b', it.realEstateTax, 'Real estate taxes');

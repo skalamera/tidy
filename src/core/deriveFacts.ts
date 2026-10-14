@@ -19,6 +19,9 @@ export function emptyFacts(): TaxFacts {
     w2s: [],
     f1099Int: [],
     f1099Div: [],
+    f1099R: [],
+    ssa1099: [],
+    hasNondeductibleIraBasis: null,
     itemized: {
       medicalExpenses: 0,
       stateIncomeTaxPayments: [],
@@ -185,6 +188,53 @@ export function deriveFacts(state: AppState): TaxFacts {
             box12ExemptInterestDividends: amountCents(d.box12ExemptInterestDividends),
             box13PrivateActivityBondDividends: amountCents(d.box13PrivateActivityBondDividends),
             evidence: { box1aOrdinaryDividends: ev('box1aOrdinaryDividends', d.box1aOrdinaryDividends) },
+          });
+          break;
+        }
+        case 'f1099_r': {
+          const d = x.data;
+          f.f1099R!.push({
+            id,
+            owner: guessOwner(f, d.recipientName, d.recipientSsnLast4),
+            payerName: d.payerName,
+            payerEin: d.payerEin,
+            box1GrossDistribution: amountCents(d.box1GrossDistribution),
+            box2aTaxableAmount: amountCents(d.box2aTaxableAmount),
+            box2bTaxableNotDetermined: d.box2bTaxableNotDetermined,
+            box2bTotalDistribution: d.box2bTotalDistribution,
+            box4FedWithheld: amountCents(d.box4FedWithheld),
+            box5EmployeeContributions: amountCents(d.box5EmployeeContributions),
+            box7Codes: d.box7Codes.trim().toUpperCase(),
+            iraSepSimple: d.box7IraSepSimple,
+            stateLines: d.stateLines.map((s) => ({
+              state: s.state ?? '',
+              stateTax: amountCents(s.stateTax),
+              stateDistribution: amountCents(s.stateDistribution),
+            })),
+            evidence: {
+              box1GrossDistribution: ev('box1GrossDistribution', d.box1GrossDistribution),
+              box2aTaxableAmount: ev('box2aTaxableAmount', d.box2aTaxableAmount),
+              box4FedWithheld: ev('box4FedWithheld', d.box4FedWithheld),
+            },
+          });
+          break;
+        }
+        case 'ssa_1099': {
+          const d = x.data;
+          const paid = amountCents(d.box3BenefitsPaid);
+          const repaid = amountCents(d.box4BenefitsRepaid);
+          const net = d.box5NetBenefits.amount !== null ? amountCents(d.box5NetBenefits) : paid - repaid;
+          f.ssa1099!.push({
+            id,
+            owner: guessOwner(f, d.recipientName, d.recipientSsnLast4),
+            box3BenefitsPaid: paid || Math.max(0, net),
+            box4BenefitsRepaid: repaid,
+            box5NetBenefits: net,
+            box6FedWithheld: amountCents(d.box6FedWithheld),
+            evidence: {
+              box5NetBenefits: ev('box5NetBenefits', d.box5NetBenefits),
+              box6FedWithheld: ev('box6FedWithheld', d.box6FedWithheld),
+            },
           });
           break;
         }

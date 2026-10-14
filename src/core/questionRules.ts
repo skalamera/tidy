@@ -341,8 +341,8 @@ export const RULES: Rule[] = [
     applies: () => true,
     build: () =>
       yesNo(
-        'Besides wages, interest and dividends, did you have any other income in 2025?',
-        'For example a business, rental property, partnership or S corporation, trust, IRA or pension, Social Security, or sales of stocks, funds or other property.',
+        'Besides wages, interest, dividends, pensions, IRAs, and Social Security, did you have any other income in 2025?',
+        'For example a business, rental property, partnership or S corporation, trust, or sales of stocks, funds or other property.',
       ),
     apply: () => {},
   },
@@ -358,6 +358,145 @@ export const RULES: Rule[] = [
         'People 65 or older, or blind, get a larger standard deduction and the new senior deduction.',
       ),
     apply: () => {},
+  },
+  {
+    id: 'you-65',
+    sectionId: 'profile',
+    applies: (c) => answerOf(c, 'senior-or-blind') === 'yes',
+    build: () =>
+      yesNo('Were you born before January 2, 1961?', 'The IRS treats anyone born on or before January 1, 1961 as 65 or older for 2025.'),
+    apply: (a, f) => {
+      if (a === 'yes' && (!f.taxpayer.dateOfBirth || f.taxpayer.dateOfBirth >= '1961-01-02')) f.taxpayer.dateOfBirth = '1955-01-01';
+    },
+  },
+  {
+    id: 'you-blind',
+    sectionId: 'profile',
+    applies: (c) => answerOf(c, 'senior-or-blind') === 'yes',
+    build: () =>
+      yesNo(
+        'Were you legally blind on December 31, 2025?',
+        'Complete blindness, or vision no better than 20/200 in your better eye with glasses (or a field of vision of 20 degrees or less).',
+      ),
+    apply: (a, f) => {
+      f.taxpayer.blind = a === 'yes';
+    },
+  },
+  {
+    id: 'spouse-65',
+    sectionId: 'profile',
+    applies: (c) => c.facts.filingStatus === 'mfj' && answerOf(c, 'senior-or-blind') === 'yes',
+    build: () =>
+      yesNo(
+        'Was your spouse born before January 2, 1961?',
+        'The IRS treats anyone born on or before January 1, 1961 as 65 or older for 2025.',
+      ),
+    apply: (a, f) => {
+      if (a === 'yes' && f.spouse && (!f.spouse.dateOfBirth || f.spouse.dateOfBirth >= '1961-01-02')) f.spouse.dateOfBirth = '1955-01-01';
+    },
+  },
+  {
+    id: 'spouse-blind',
+    sectionId: 'profile',
+    applies: (c) => c.facts.filingStatus === 'mfj' && answerOf(c, 'senior-or-blind') === 'yes',
+    build: () =>
+      yesNo(
+        'Was your spouse legally blind on December 31, 2025?',
+        'Complete blindness, or vision no better than 20/200 in their better eye with glasses (or a field of vision of 20 degrees or less).',
+      ),
+    apply: (a, f) => {
+      if (f.spouse) f.spouse.blind = a === 'yes';
+    },
+  },
+  {
+    id: 'ira-nondeductible-basis',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099R ?? []).some((r) => r.iraSepSimple && !/^[GHQRT]/.test(r.box7Codes)),
+    build: () =>
+      yesNo(
+        'Have you (or your spouse) ever made nondeductible contributions to a traditional IRA (Form 8606)?',
+        'Most people only made pre-tax IRA contributions or rolled over a 401(k) and answer “No”. If you have after-tax basis in a traditional IRA, part of your distribution is tax-free on Form 8606.',
+      ),
+    apply: (a, f) => {
+      f.hasNondeductibleIraBasis = a === 'yes';
+    },
+  },
+  {
+    id: 'ira-qcd',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099R ?? []).some((r) => r.iraSepSimple && r.box2aTaxableAmount > 0 && !/^[GHQ]/.test(r.box7Codes)),
+    build: () =>
+      yesNo(
+        'Did any of your IRA distribution go directly from the IRA to a qualified charity (a Qualified Charitable Distribution)?',
+        'If you are 70½ or older, direct transfers from your IRA to a charity (up to $108,000 per person in 2025) are excluded from taxable income on Form 1040 line 4b.',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'ira-qcd-amount',
+    sectionId: 'wages',
+    applies: (c) => answerOf(c, 'ira-qcd') === 'yes',
+    build: () =>
+      money(
+        'How much of your 2025 IRA distributions was transferred directly to charity as a QCD?',
+        'Enter the total Qualified Charitable Distribution amount. Tidy subtracts it on Form 1040 line 4b and checks the QCD box.',
+      ),
+    apply: (a, f) => {
+      let rem = cents(a);
+      for (const r of f.f1099R ?? []) {
+        if (!r.iraSepSimple || r.box2aTaxableAmount <= 0 || rem <= 0) continue;
+        const take = Math.min(rem, r.box2aTaxableAmount);
+        r.qcdAmount = take;
+        rem -= take;
+      }
+    },
+  },
+  {
+    id: 'retirement-rollover',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.f1099R ?? []).some((r) => r.box2aTaxableAmount > 0 && !/^[GH]/.test(r.box7Codes)),
+    build: () =>
+      yesNo(
+        'Did you roll over any of your 2025 retirement distributions into another IRA or retirement plan within 60 days?',
+        'Direct rollovers (code G) are already marked tax-free on your 1099-R. Answer “Yes” only if you received a distribution and rolled it over yourself.',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'retirement-rollover-amount',
+    sectionId: 'wages',
+    applies: (c) => answerOf(c, 'retirement-rollover') === 'yes',
+    build: () =>
+      money(
+        'How much did you roll over into another retirement account?',
+        'Tidy subtracts this rollover on Form 1040 line 4b or 5b and checks the Rollover box.',
+      ),
+    apply: (a, f) => {
+      let rem = cents(a);
+      for (const r of f.f1099R ?? []) {
+        if (r.box2aTaxableAmount <= 0 || /^[GH]/.test(r.box7Codes) || rem <= 0) continue;
+        const avail = Math.max(0, r.box2aTaxableAmount - (r.qcdAmount ?? 0));
+        const take = Math.min(rem, avail);
+        r.rolloverAmount = take;
+        rem -= take;
+      }
+    },
+  },
+  {
+    id: 'md-pension-disability',
+    sectionId: 'state_summary',
+    applies: (c) =>
+      c.facts.residency.state === 'MD' &&
+      (c.facts.f1099R ?? []).some((r) => !r.iraSepSimple && r.box2aTaxableAmount > 0) &&
+      !(c.facts.taxpayer.dateOfBirth && c.facts.taxpayer.dateOfBirth < '1961-01-02'),
+    build: () =>
+      yesNo(
+        'Were you totally and permanently disabled on December 31, 2025?',
+        'Maryland allows the pension exclusion (up to $41,200) for taxpayers under 65 who are totally and permanently disabled.',
+      ),
+    apply: (a, f) => {
+      f.taxpayer.totallyDisabled = a === 'yes';
+    },
   },
   {
     id: 'home-state-munis',

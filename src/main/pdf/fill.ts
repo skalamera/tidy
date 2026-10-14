@@ -100,6 +100,18 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     if (f.spouse) Object.assign(text, { spouseFirstName: f.spouse.firstName, spouseLastName: f.spouse.lastName, spouseSsn: f.spouse.ssn });
     checks.push(f.filingStatus);
     if (f.digitalAssets !== null) checks.push(f.digitalAssets ? 'digitalAssetsYes' : 'digitalAssetsNo');
+    if (r.line4c.rollover) checks.push('iraRollover');
+    if (r.line4c.qcd) checks.push('iraQcd');
+    if (r.line5c.rollover) checks.push('pensionRollover');
+    if (r.line5c.pso) checks.push('pensionPso');
+    if (r.line12d.you65) checks.push('youBornBefore1961');
+    if (r.line12d.youBlind) checks.push('youBlind');
+    if (r.line12d.spouse65) checks.push('spouseBornBefore1961');
+    if (r.line12d.spouseBlind) checks.push('spouseBlind');
+    // When a distribution has a $0 taxable amount (e.g. a direct rollover or full QCD) and gross > 0, IRS instructions say to enter 0 on 4b/5b.
+    if (r.ledger.get('f1040.4a') > 0 && r.ledger.get('f1040.4b') === 0) text['f1040.4b'] = '0';
+    if (r.ledger.get('f1040.5a') > 0 && r.ledger.get('f1040.5b') === 0) text['f1040.5b'] = '0';
+    if (r.ledger.get('f1040.6a') > 0 && r.ledger.get('f1040.6b') === 0) text['f1040.6b'] = '0';
     // Phase 1 never files Schedule D, so capital gain distributions go straight on 7a with box 7b checked.
     if (r.ledger.get('f1040.7a') !== 0) checks.push('scheduleDNotRequired');
   } else {

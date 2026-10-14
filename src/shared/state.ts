@@ -5,8 +5,10 @@ import type {
   F1098ExtractionT,
   F1099DivExtractionT,
   F1099IntExtractionT,
+  F1099RExtractionT,
   PaymentExtractionT,
   PriorYearExtractionT,
+  Ssa1099ExtractionT,
   W2ExtractionT,
 } from './schemas/extraction';
 
@@ -39,6 +41,8 @@ export type Extraction = { firstPage: number } & (
   | { form: 'w2'; data: W2ExtractionT }
   | { form: 'f1099_int'; data: F1099IntExtractionT }
   | { form: 'f1099_div'; data: F1099DivExtractionT }
+  | { form: 'f1099_r'; data: F1099RExtractionT }
+  | { form: 'ssa_1099'; data: Ssa1099ExtractionT }
   | { form: 'f1098'; data: F1098ExtractionT }
   | { form: 'payment'; data: PaymentExtractionT }
 );

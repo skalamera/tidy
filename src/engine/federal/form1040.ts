@@ -10,8 +10,9 @@ import { form8959 } from './form8959';
 import { form8960 } from './form8960';
 import { schedule3 } from './schedule3';
 import { amtScreen } from './amtScreen';
+import { is65OrOlder, retirementDistributions, schedule1A, socialSecurityWorksheet } from './retirement';
 
-export type FederalFormId = 'f1040' | 'schA' | 'schB' | 'sch2' | 'sch3' | 'f8959' | 'f8960';
+export type FederalFormId = 'f1040' | 'sch1A' | 'schA' | 'schB' | 'sch2' | 'sch3' | 'f8959' | 'f8960';
 
 export interface FederalResult {
   ledger: Ledger;
@@ -28,6 +29,12 @@ export interface FederalResult {
   mayOweAmt: boolean;
   /** Schedule B Parts I and II rows. */
   payers: { interest: { name: string; amount: Cents }[]; dividends: { name: string; amount: Cents }[] };
+  /** Form 1040 line 4c checkboxes (Rollover, QCD). */
+  line4c: { rollover: boolean; qcd: boolean };
+  /** Form 1040 line 5c checkboxes (Rollover, PSO). */
+  line5c: { rollover: boolean; pso: boolean };
+  /** Form 1040 line 12d checkboxes (65+ and blind for taxpayer and spouse). */
+  line12d: { you65: boolean; youBlind: boolean; spouse65: boolean; spouseBlind: boolean };
 }
 
 /** Form 1040 (2025) for the Phase-1 scope. Pure: same facts in → same lines out. */
@@ -38,7 +45,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L1a = l.set('f1040.1a', sumCents(f.w2s.map((w) => w.box1Wages)), 'Wages from W-2s (box 1)');
   const L1z = l.set('f1040.1z', L1a, 'Total wages', 'Lines 1a through 1h');
   const b = scheduleB(f, l);
-  l.set(
+  const L2a = l.set(
     'f1040.2a',
     sumCents([...f.f1099Int.map((x) => x.box8TaxExemptInterest), ...f.f1099Div.map((x) => x.box12ExemptInterestDividends)]),
     'Tax-exempt interest',
@@ -46,20 +53,36 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L2b = l.set('f1040.2b', b.taxableInterest, 'Taxable interest');
   const L3a = l.set('f1040.3a', sumCents(f.f1099Div.map((x) => x.box1bQualifiedDividends)), 'Qualified dividends');
   const L3b = l.set('f1040.3b', b.ordinaryDividends, 'Ordinary dividends');
+  const ret = retirementDistributions(f, p, l);
+  const L4b = ret.line4b;
+  const L5b = ret.line5b;
   const L7a = l.set('f1040.7a', sumCents(f.f1099Div.map((x) => x.box2aCapitalGainDistributions)), 'Capital gain distributions');
   const L8 = l.set('f1040.8', 0, 'Additional income (Schedule 1)');
-  const L9 = l.set('f1040.9', L1z + L2b + L3b + L7a + L8, 'Total income', 'Lines 1z + 2b + 3b + 4b + 5b + 6b + 7a + 8');
   const L10 = l.set('f1040.10', 0, 'Adjustments to income (Schedule 1)');
+  const otherIncomeBeforeSs = L1z + L2b + L3b + L4b + L5b + L7a + L8;
+  const ss = socialSecurityWorksheet(f, otherIncomeBeforeSs, L2a, L10, p, l);
+  const L6b = ss.line6b;
+  const L9 = l.set('f1040.9', otherIncomeBeforeSs + L6b, 'Total income', 'Lines 1z + 2b + 3b + 4b + 5b + 6b + 7a + 8');
   const L11a = l.set('f1040.11a', L9 - L10, 'Adjusted gross income', 'Line 9 − line 10');
 
   // Deductions (page 2)
   const L11b = l.set('f1040.11b', L11a, 'Adjusted gross income');
-  const standard = p.standardDeduction[f.filingStatus];
+  const you65 = is65OrOlder(f.taxpayer.dateOfBirth);
+  const youBlind = Boolean(f.taxpayer.blind);
+  const hasSpouseOnReturn = f.filingStatus === 'mfj' && f.spouse !== null;
+  const spouse65 = hasSpouseOnReturn && is65OrOlder(f.spouse!.dateOfBirth);
+  const spouseBlind = hasSpouseOnReturn && Boolean(f.spouse!.blind);
+  const extraBoxes = (you65 ? 1 : 0) + (youBlind ? 1 : 0) + (spouse65 ? 1 : 0) + (spouseBlind ? 1 : 0);
+  const extraPerBox =
+    f.filingStatus === 'single' || f.filingStatus === 'hoh'
+      ? p.additionalStandardDeduction65OrBlind.singleOrHoh
+      : p.additionalStandardDeduction65OrBlind.marriedOrQss;
+  const standard = p.standardDeduction[f.filingStatus] + extraBoxes * extraPerBox;
   const itemized = scheduleA(f, L11b, p, l);
   const itemizing = f.forceItemize || itemized > standard;
   const L12e = l.set('f1040.12e', itemizing ? itemized : standard, itemizing ? 'Itemized deductions (Schedule A)' : 'Standard deduction');
   const L13a = l.set('f1040.13a', 0, 'Qualified business income deduction');
-  const L13b = l.set('f1040.13b', 0, 'Additional deductions (Schedule 1-A)');
+  const L13b = l.set('f1040.13b', schedule1A(f, L11b, p, l), 'Additional deductions (Schedule 1-A)');
   const L14 = l.set('f1040.14', L12e + L13a + L13b, 'Total deductions', 'Lines 12e + 13a + 13b');
   const L15 = l.set('f1040.15', Math.max(0, L11b - L14), 'Taxable income', 'Line 11b − line 14');
 
@@ -93,7 +116,12 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L25a = l.set('f1040.25a', sumCents(f.w2s.map((w) => w.box2FedWithheld)), 'Federal tax withheld (W-2s)');
   const L25b = l.set(
     'f1040.25b',
-    sumCents([...f.f1099Int.map((x) => x.box4FedWithheld), ...f.f1099Div.map((x) => x.box4FedWithheld)]),
+    sumCents([
+      ...f.f1099Int.map((x) => x.box4FedWithheld),
+      ...f.f1099Div.map((x) => x.box4FedWithheld),
+      ...(f.f1099R ?? []).map((x) => x.box4FedWithheld),
+      ...(f.ssa1099 ?? []).map((x) => x.box6FedWithheld),
+    ]),
     'Federal tax withheld (1099s)',
   );
   const L25c = l.set('f1040.25c', medicare.withholding, 'Additional Medicare Tax withheld (Form 8959)');
@@ -111,8 +139,9 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
   const L37 = l.set('f1040.37', Math.max(0, L24 - L33), 'Amount you owe', 'Line 24 − line 33');
 
   const foreign = f.foreignAccounts.hasForeignAccount === true || f.foreignAccounts.foreignTrust === true;
-  // Attachment Sequence No. order: 1040, Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), 8959 (71), 8960 (72).
+  // Attachment Sequence No. order: 1040, Sch 1-A (01A), Sch 2 (02), Sch 3 (03), Sch A (07), Sch B (08), 8959 (71), 8960 (72).
   const forms: FederalFormId[] = ['f1040'];
+  if (L13b > 0) forms.push('sch1A');
   if (S2_3 > 0 || S2_21 > 0) forms.push('sch2');
   if (s3.nonrefundableCredits > 0 || s3.otherPayments > 0) forms.push('sch3');
   if (itemizing) forms.push('schA');
@@ -132,5 +161,8 @@ export function computeFederal(f: TaxFacts, p: FedParams = FED_2025): FederalRes
     forms,
     mayOweAmt,
     payers: { interest: b.interestPayers, dividends: b.dividendPayers },
+    line4c: ret.line4c,
+    line5c: ret.line5c,
+    line12d: { you65, youBlind, spouse65, spouseBlind },
   };
 }

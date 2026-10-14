@@ -44,14 +44,13 @@ describe('Maryland questions', () => {
       'filing-status-same': 'yes',
       'resident-state': 'MD',
       'has-dependents': 'yes',
-      'senior-or-blind': 'yes',
       'other-income': 'yes',
     });
     const f = deriveFacts(s);
     const ids = deriveFlags(s, f, computeFederal(f))
       .filter((x) => x.severity === 'blocker')
       .map((x) => x.id);
-    expect(ids).toEqual(expect.arrayContaining(['dependents', 'senior-or-blind', 'other-income']));
+    expect(ids).toEqual(expect.arrayContaining(['dependents', 'other-income']));
   });
 
   it('blocks part-year residents and other states', () => {

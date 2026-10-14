@@ -11,6 +11,7 @@ import { STATE_MAPS, mdValues } from './stateValues';
 
 const FORM_TITLE: Record<FederalFormId, string> = {
   f1040: 'Form 1040',
+  sch1A: 'Schedule 1-A',
   sch2: 'Schedule 2',
   sch3: 'Schedule 3',
   schA: 'Schedule A',
@@ -146,7 +147,8 @@ export async function buildPackage(state: AppState, readResource: (rel: string) 
   const append = async (map: FormMap, values: FillValues) => {
     const filled = await fillPdf(await readResource(map.template), map, values);
     filled.getForm().flatten();
-    for (const p of await out.copyPages(filled, filled.getPageIndices())) out.addPage(p);
+    const indices = map.pages ?? filled.getPageIndices();
+    for (const p of await out.copyPages(filled, indices)) out.addPage(p);
   };
 
   await coverPage(out, f, r, s);

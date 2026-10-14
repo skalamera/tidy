@@ -44,6 +44,8 @@ const FORM_TO_DOCTYPES: Record<string, DocType[]> = {
   w2: ['w2'],
   f1099_int: ['f1099_int', 'f1099_composite'],
   f1099_div: ['f1099_div', 'f1099_composite'],
+  f1099_r: ['f1099_r'],
+  ssa_1099: ['ssa_1099'],
   f1099_b: ['f1099_b', 'f1099_composite'],
   k1: ['k1_1065', 'k1_1120s', 'k1_1041'],
   f1098: ['f1098'],

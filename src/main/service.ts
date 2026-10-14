@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { computeFederal } from '../engine/federal/form1040';
 import { formatUsd } from '../engine/money';
+import { computeStateReturn } from '../engine/state';
 import { amountAt } from '../core/amount';
 import { deriveFacts } from '../core/deriveFacts';
 import { applyOverrides } from '../core/overrides';
@@ -334,10 +335,15 @@ export class TidyService {
         const id = i.section_id as SectionId;
         return { cards: v.details[id], questions: v.questions.filter((q) => q.sectionId === id) };
       },
-      explain_line: async (i) =>
-        computeFederal(deriveFacts(this.deps.store.get()))
-          .ledger.all()
-          .find((l) => l.id === i.line_id) ?? { error: 'No such line' },
+      explain_line: async (i) => {
+        const f = deriveFacts(this.deps.store.get());
+        const fed = computeFederal(f);
+        const st = computeStateReturn(f, fed);
+        return (
+          fed.ledger.all().find((l) => l.id === i.line_id) ??
+          st?.md.ledger.all().find((l) => l.id === i.line_id) ?? { error: 'No such line' }
+        );
+      },
       list_documents: async () => this.view().documents,
       search_tax_law: async (i) => this.deps.law.search(String(i.query)),
       propose_change: async (i) => {

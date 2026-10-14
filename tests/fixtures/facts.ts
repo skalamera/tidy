@@ -1,5 +1,5 @@
 import { usd } from '../../src/engine/money';
-import type { Form1099Div, Form1099Int, TaxFacts, W2 } from '../../src/shared/facts';
+import type { Form1099Div, Form1099Int, Form1099R, Ssa1099, TaxFacts, W2 } from '../../src/shared/facts';
 
 let seq = 0;
 const nextId = (prefix: string) => `${prefix}-${++seq}`;
@@ -62,6 +62,41 @@ export function div1099(p: Partial<Form1099Div>): Form1099Div {
   };
 }
 
+export function r1099(p: Partial<Form1099R>): Form1099R {
+  return {
+    id: nextId('r'),
+    owner: 'taxpayer',
+    payerName: 'State Retirement System',
+    payerEin: null,
+    box1GrossDistribution: 0,
+    box2aTaxableAmount: 0,
+    box2bTaxableNotDetermined: false,
+    box2bTotalDistribution: false,
+    box4FedWithheld: 0,
+    box5EmployeeContributions: 0,
+    box7Codes: '7',
+    iraSepSimple: false,
+    stateLines: [],
+    evidence: {},
+    ...p,
+  };
+}
+
+export function ssa1099(p: Partial<Ssa1099>): Ssa1099 {
+  const paid = p.box3BenefitsPaid ?? p.box5NetBenefits ?? 0;
+  const repaid = p.box4BenefitsRepaid ?? 0;
+  return {
+    id: nextId('ssa'),
+    owner: 'taxpayer',
+    box3BenefitsPaid: paid,
+    box4BenefitsRepaid: repaid,
+    box5NetBenefits: p.box5NetBenefits ?? paid - repaid,
+    box6FedWithheld: 0,
+    evidence: {},
+    ...p,
+  };
+}
+
 export function facts(p: Partial<TaxFacts> = {}): TaxFacts {
   return {
     taxYear: 2025,
@@ -79,6 +114,9 @@ export function facts(p: Partial<TaxFacts> = {}): TaxFacts {
     w2s: [],
     f1099Int: [],
     f1099Div: [],
+    f1099R: [],
+    ssa1099: [],
+    hasNondeductibleIraBasis: false,
     itemized: {
       medicalExpenses: 0,
       stateIncomeTaxPayments: [],

@@ -9,7 +9,7 @@ import { FakeLlm } from '../../src/main/ai/llm';
 import { CLASSIFY_SYSTEM } from '../../src/main/ai/prompts';
 import { addFile, processDocument, type PdfTools } from '../../src/main/pipeline/ingest';
 import { deriveFacts } from '../../src/core/deriveFacts';
-import { priorYear, w2Extraction } from '../fixtures/state';
+import { priorYear, r1099Extraction, ssa1099Extraction, w2Extraction } from '../fixtures/state';
 
 const NOW = () => '2026-10-13T12:00:00.000Z';
 let n = 0;
@@ -95,6 +95,26 @@ describe('ingest pipeline', () => {
     expect(b).toEqual({ id: a.id, duplicate: true });
     await processDocument(deps, a.id);
     expect(store.get().documents[0].status).toBe('unsupported');
+  });
+
+  it('extracts a 1099-R and an SSA-1099 and verifies their amounts', async () => {
+    const rPage = 'Gross distribution 35,000.00 Taxable amount 35,000.00 Federal income tax withheld 3,500.00 MD tax 1,500.00 35,000.00';
+    const { store, deps } = await setup([rPage], (call) => {
+      if (call.system === CLASSIFY_SYSTEM) {
+        return call.prompt.includes('ssa') ? classification('ssa_1099', 'SSA') : classification('f1099_r', 'State Retirement System');
+      }
+      return call.prompt.includes('SSA-1099') ? ssa1099Extraction().data : r1099Extraction().data;
+    });
+    const r = await addFile(deps, '1099r.pdf', Buffer.from('%PDF 1099r'));
+    await processDocument(deps, r.id);
+    const ssa = await addFile(deps, 'ssa.pdf', Buffer.from('%PDF ssa'));
+    await processDocument(deps, ssa.id);
+
+    const f = deriveFacts(store.get());
+    expect(f.f1099R).toHaveLength(1);
+    expect(f.f1099R![0].box1GrossDistribution).toBe(3_500_000);
+    expect(f.ssa1099).toHaveLength(1);
+    expect(f.ssa1099![0].box5NetBenefits).toBe(2_000_000);
   });
 
   it('records a friendly error instead of crashing', async () => {

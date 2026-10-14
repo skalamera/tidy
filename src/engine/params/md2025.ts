@@ -128,6 +128,16 @@ export const MD_2025 = {
     ] as [Cents, Cents][],
     ageOrBlind: usd(1_000),
   },
+  /** Worksheet 13A (2025 Maryland Resident Booklet, Instruction 13) — maximum pension exclusion ($41,200 per qualifying spouse). */
+  pensionExclusionMax: usd(41_200),
+  /** Form 502CR Part M (2025) — Senior Tax Credit. */
+  seniorTaxCredit: {
+    unmarriedMaxFagi: usd(100_000),
+    jointOrMfsMaxFagi: usd(150_000),
+    singleAmount: usd(1_000),
+    jointBoth65Amount: usd(1_750),
+    mfsAmount: usd(875),
+  },
   capitalGainSurtax: { rate: pct('2'), fagiThreshold: usd(350_000) },
   local: MD_LOCAL_2025,
 } as const;

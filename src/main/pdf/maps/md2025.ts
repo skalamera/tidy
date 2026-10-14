@@ -96,7 +96,16 @@ export const MD502_2025: FormMap = {
     'md502.52': 'Text Box 91',
     'md502.52.cents': 'Text Box 92',
   },
-  checks: { exemptYou: 'Check Box 15', exemptSpouse: 'Check Box 18', age65You: 'Check Box 20', age65Spouse: 'Check Box 21' },
+  checks: {
+    exemptYou: 'Check Box 15',
+    exemptSpouse: 'Check Box 18',
+    age65You: 'Check Box 20',
+    age65Spouse: 'Check Box 21',
+    blindYou: 'B. Check this box if you are blind',
+    blindSpouse: 'B. Check this box if your spouse is blind',
+    pensionExclusionYou: 'Check Box 30',
+    pensionExclusionSpouse: 'Check Box 31',
+  },
   choices: {
     filingStatus: {
       field: 'Check Box - 1',
@@ -132,6 +141,7 @@ export const MD502SU_2025: FormMap = {
 export const MD502CG_2025: FormMap = {
   template: 'forms/2025/md502cg.pdf',
   numbers: 'plain',
+  pages: [0],
   text: {
     firstName: 'Text Field 13',
     lastName: 'Text Field 11',
@@ -141,6 +151,67 @@ export const MD502CG_2025: FormMap = {
     spouseSsn: 'Text Field 6',
     'md502cg.1': 'Text Box 69',
     'md502cg.9': 'Text Box 78',
+  },
+  checks: {},
+};
+
+export const MD502R_2025: FormMap = {
+  template: 'forms/2025/md502r.pdf',
+  numbers: 'plain',
+  pages: [0],
+  text: {
+    firstName: 'Text Field 1',
+    lastName: 'Text Field 3',
+    ssn: 'Text Field 4',
+    spouseFirstName: 'Text Field 5',
+    spouseLastName: 'Text Field 7',
+    spouseSsn: 'Text Field 8',
+    yourAge: 'Text Field 9',
+    spouseAge: 'Text Field 10',
+    'md502r.1a': 'Text Field 11',
+    'md502r.1b': 'Text Field 36',
+    'md502r.2a': 'Text Field 13',
+    'md502r.2b': 'Text Field 37',
+    'md502r.3a': 'Text Field 16',
+    'md502r.3b': 'Text Field 38',
+    'md502r.4a': 'Text Field 18',
+    'md502r.4b': 'Text Field 39',
+    'md502r.5a': 'Text Field 20',
+    'md502r.5b': 'Text Field 40',
+    'md502r.6a': 'Text Field 22',
+    'md502r.6b': 'Text Field 41',
+    'md502r.7a': 'Text Field 24',
+    'md502r.7b': 'Text Field 42',
+    'md502r.8': 'Text Field 25',
+    'md502r.9a': 'Text Field 26',
+    'md502r.9b': 'Text Field 43',
+    'md502r.10a': 'Text Field 34',
+    'md502r.10b': 'Text Field 44',
+    'md502r.11a': 'Text Field 30',
+    'md502r.11b': 'Text Field 45',
+    'md502r.12a': 'Text Field 32',
+    'md502r.12b': 'Text Field 46',
+  },
+  checks: {
+    disabledYou: 'Check Box 1',
+    disabledSpouse: 'Check Box 2',
+  },
+};
+
+export const MD502CR_2025: FormMap = {
+  template: 'forms/2025/md502cr.pdf',
+  numbers: 'plain',
+  pages: [0, 1, 2, 3],
+  text: {
+    firstName: 'Text Field 3',
+    lastName: 'Text Field 5',
+    ssn: 'Text Field 1',
+    spouseFirstName: 'Text Field 6',
+    spouseLastName: 'Text Field 8',
+    spouseSsn: 'Text Field 2',
+    'md502cr.M1': 'Text Field 1051',
+    'md502cr.AA12': 'Text Field 1039',
+    'md502cr.AA14': 'Text Field 1038',
   },
   checks: {},
 };

@@ -40,6 +40,8 @@ export const PART_FORMS = [
   'f1099_int',
   'f1099_div',
   'f1099_b',
+  'f1099_r',
+  'ssa_1099',
   'f1099_misc',
   'f1099_oid',
   'f1098',
@@ -116,6 +118,39 @@ export const F1098Extraction = z.object({
 });
 export type F1098ExtractionT = z.infer<typeof F1098Extraction>;
 
+export const F1099RExtraction = z.object({
+  payerName: z.string(),
+  payerEin: z.string().nullable(),
+  recipientName: z.string(),
+  recipientSsnLast4: z.string().nullable(),
+  box1GrossDistribution: Amount,
+  box2aTaxableAmount: Amount,
+  box2bTaxableNotDetermined: z.boolean().describe('Box 2b "Taxable amount not determined" is checked.'),
+  box2bTotalDistribution: z.boolean().describe('Box 2b "Total distribution" is checked.'),
+  box4FedWithheld: Amount,
+  box5EmployeeContributions: Amount.describe('Box 5: employee contributions / designated Roth contributions or insurance premiums.'),
+  box7Codes: z.string().describe('Distribution code(s) printed in box 7, e.g. "7", "G", "7B", "1".'),
+  box7IraSepSimple: z.boolean().describe('Box 7 "IRA/SEP/SIMPLE" checkbox is checked.'),
+  stateLines: z.array(
+    z.object({
+      state: z.string().nullable(),
+      stateTax: Amount.describe('Box 14: state tax withheld.'),
+      stateDistribution: Amount.describe('Box 16: state distribution.'),
+    }),
+  ),
+});
+export type F1099RExtractionT = z.infer<typeof F1099RExtraction>;
+
+export const Ssa1099Extraction = z.object({
+  recipientName: z.string(),
+  recipientSsnLast4: z.string().nullable(),
+  box3BenefitsPaid: Amount.describe('Box 3: Benefits paid in 2025.'),
+  box4BenefitsRepaid: Amount.describe('Box 4: Benefits repaid to SSA in 2025.'),
+  box5NetBenefits: Amount.describe('Box 5: Net benefits for 2025 (box 3 minus box 4).'),
+  box6FedWithheld: Amount.describe('Box 6: Voluntary federal income tax withheld.'),
+});
+export type Ssa1099ExtractionT = z.infer<typeof Ssa1099Extraction>;
+
 export const PaymentExtraction = z.object({
   kind: z.enum(['property_tax', 'charity_cash', 'charity_noncash', 'federal_estimate', 'state_estimate', 'other']),
   payee: z.string(),
@@ -146,7 +181,12 @@ export const PriorYearExtraction = z.object({
   appliedToNextYear: Amount.describe('Form 1040 line 36: overpayment applied to next year’s estimated tax.'),
   stateBalanceDue: Amount.describe('Amount owed on the state return (paid in the following year).'),
   stateAppliedToNextYear: Amount.describe('Maryland overpayment applied to next year’s estimated tax (Form 502 line 49).'),
-  payers: z.array(z.object({ name: z.string(), form: z.enum(['w2', 'f1099_int', 'f1099_div', 'f1099_b', 'k1', 'f1098', 'other']) })),
+  payers: z.array(
+    z.object({
+      name: z.string(),
+      form: z.enum(['w2', 'f1099_int', 'f1099_div', 'f1099_r', 'ssa_1099', 'f1099_b', 'k1', 'f1098', 'other']),
+    }),
+  ),
   carryovers: z.object({
     capitalLossShortTerm: Amount,
     capitalLossLongTerm: Amount,

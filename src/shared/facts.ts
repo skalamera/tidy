@@ -19,6 +19,8 @@ export interface Person {
   /** 9 digits, no dashes. Stored encrypted; masked in the UI. */
   ssn: string;
   dateOfBirth: string | null; // YYYY-MM-DD
+  blind?: boolean;
+  totallyDisabled?: boolean;
 }
 
 export interface Address {
@@ -79,6 +81,50 @@ export interface Form1099Div {
   evidence: Record<string, Evidence>;
 }
 
+/** Maryland Form 502R Part 4 source classification for a Form 1099-R pension/annuity. */
+export type Md502RSource = 'qualified_plan' | 'military' | 'public_safety' | 'other';
+
+export interface Form1099R {
+  id: string;
+  owner: Owner;
+  payerName: string;
+  payerEin: string | null;
+  box1GrossDistribution: Cents;
+  box2aTaxableAmount: Cents;
+  box2bTaxableNotDetermined: boolean;
+  box2bTotalDistribution: boolean;
+  box4FedWithheld: Cents;
+  box5EmployeeContributions: Cents;
+  /** Uppercase distribution code(s) from box 7, e.g. "7", "G", "7B", "1". */
+  box7Codes: string;
+  /** Box 7 IRA/SEP/SIMPLE checkbox. True = IRA/SEP/SIMPLE (Form 1040 line 4a/4b); false = pension/annuity (line 5a/5b). */
+  iraSepSimple: boolean;
+  stateLines: { state: string; stateTax: Cents; stateDistribution: Cents }[];
+  /** Portion of box 1 rolled over to another retirement account (if not already code G/H with box 2a = 0). */
+  rolloverAmount?: Cents;
+  /** Qualified charitable distribution (QCD) from an IRA (excluded from taxable amount on line 4b with QCD checked). */
+  qcdAmount?: Cents;
+  /** Eligible retired public safety officer insurance premiums (up to $3,000, excluded on line 5b with PSO checked). */
+  psoAmount?: Cents;
+  /** Maryland Form 502R Part 4 source category (for non-IRA pensions). Defaults to 'qualified_plan' when not specified. */
+  mdSource?: Md502RSource;
+  evidence: Record<string, Evidence>;
+}
+
+export interface Ssa1099 {
+  id: string;
+  owner: Owner;
+  /** Box 3: Benefits paid in 2025. */
+  box3BenefitsPaid: Cents;
+  /** Box 4: Benefits repaid to SSA in 2025. */
+  box4BenefitsRepaid: Cents;
+  /** Box 5: Net benefits for 2025 (box 3 minus box 4; can be negative if repayments exceeded benefits). */
+  box5NetBenefits: Cents;
+  /** Box 6: Voluntary federal income tax withheld. */
+  box6FedWithheld: Cents;
+  evidence: Record<string, Evidence>;
+}
+
 export interface ItemizedInputs {
   medicalExpenses: Cents;
   /** State/local income tax PAID during the calendar year beyond W-2 withholding: estimated payments
@@ -131,6 +177,10 @@ export interface TaxFacts {
   w2s: W2[];
   f1099Int: Form1099Int[];
   f1099Div: Form1099Div[];
+  f1099R?: Form1099R[];
+  ssa1099?: Ssa1099[];
+  /** True if taxpayer or spouse has nondeductible traditional IRA basis (requires Form 8606 on traditional IRA distributions). */
+  hasNondeductibleIraBasis?: boolean | null;
   itemized: ItemizedInputs;
   /** Itemize even if smaller than the standard deduction (rare; needed for some state reasons). */
   forceItemize: boolean;

@@ -54,6 +54,25 @@ export const FED_2025 = {
   taxYear: 2025,
   schedules: byStatus(SINGLE, MFJ, MFS, HOH, MFJ),
   standardDeduction: byStatus(usd(15_750), usd(31_500), usd(15_750), usd(23_625), usd(31_500)),
+  additionalStandardDeduction65OrBlind: {
+    singleOrHoh: usd(2_000),
+    marriedOrQss: usd(1_600),
+  },
+  /** OBBBA (2025) Schedule 1-A Part V — Enhanced Deduction for Seniors (Form 1040 line 13b). */
+  seniorDeduction: {
+    amountPerPerson: usd(6_000),
+    phaseOutRate: pct('6'),
+    phaseOutStart: byStatus(usd(75_000), usd(150_000), 0, usd(75_000), usd(75_000)),
+  },
+  /** Social Security Benefits Worksheet (2025 Form 1040 instructions, lines 6a–6b). */
+  socialSecurityBenefits: {
+    baseThreshold: byStatus(usd(25_000), usd(32_000), 0, usd(25_000), usd(25_000)),
+    upperThreshold: byStatus(usd(34_000), usd(44_000), 0, usd(34_000), usd(34_000)),
+    max50Slice: byStatus(usd(4_500), usd(6_000), 0, usd(4_500), usd(4_500)),
+    rate50: pct('50'),
+    rate85: pct('85'),
+  },
+  psoMaxExclusion: usd(3_000),
   capitalGains: {
     zeroRateMax: byStatus(usd(48_350), usd(96_700), usd(48_350), usd(64_750), usd(96_700)),
     fifteenRateMax: byStatus(usd(533_400), usd(600_050), usd(300_000), usd(566_700), usd(600_050)),

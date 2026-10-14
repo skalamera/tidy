@@ -6,6 +6,8 @@ export interface FormMap {
   template: string; // relative to resources/
   /** 'irs' prints "1,234"; 'plain' prints "1234" (Maryland fill-in forms format numbers themselves). */
   numbers: 'irs' | 'plain';
+  /** Optional 0-based page indices to include in the printed package (drops trailing instruction pages on Maryland forms). */
+  pages?: number[];
   text: Record<string, string>;
   checks: Record<string, string>;
   /** One checkbox field with several widgets, each with its own "on" state — behaves like radio buttons. */
@@ -41,6 +43,12 @@ const f1040: FormMap = {
       'f1040.2b': 'f1_59[0]',
       'f1040.3a': 'f1_60[0]',
       'f1040.3b': 'f1_61[0]',
+      'f1040.4a': 'f1_62[0]',
+      'f1040.4b': 'f1_63[0]',
+      'f1040.5a': 'f1_65[0]',
+      'f1040.5b': 'f1_66[0]',
+      'f1040.6a': 'f1_68[0]',
+      'f1040.6b': 'f1_69[0]',
       'f1040.7a': 'f1_70[0]',
       'f1040.8': 'f1_72[0]',
       'f1040.9': 'f1_73[0]',
@@ -76,16 +84,54 @@ const f1040: FormMap = {
       'f1040.37': 'f2_35[0]',
     }),
   },
-  checks: at(P1, {
-    single: 'Checkbox_ReadOrder[0].c1_8[0]',
-    mfj: 'Checkbox_ReadOrder[0].c1_8[1]',
-    mfs: 'Checkbox_ReadOrder[0].c1_8[2]',
-    hoh: 'c1_8[0]',
-    qss: 'c1_8[1]',
-    digitalAssetsYes: 'c1_10[0]',
-    digitalAssetsNo: 'c1_10[1]',
-    scheduleDNotRequired: 'c1_43[0]',
-  }),
+  checks: {
+    ...at(P1, {
+      single: 'Checkbox_ReadOrder[0].c1_8[0]',
+      mfj: 'Checkbox_ReadOrder[0].c1_8[1]',
+      mfs: 'Checkbox_ReadOrder[0].c1_8[2]',
+      hoh: 'c1_8[0]',
+      qss: 'c1_8[1]',
+      digitalAssetsYes: 'c1_10[0]',
+      digitalAssetsNo: 'c1_10[1]',
+      iraRollover: 'c1_35[0]',
+      iraQcd: 'c1_36[0]',
+      pensionRollover: 'c1_38[0]',
+      pensionPso: 'c1_39[0]',
+      scheduleDNotRequired: 'c1_43[0]',
+    }),
+    ...at(P2, {
+      youBornBefore1961: 'c2_5[0]',
+      youBlind: 'c2_6[0]',
+      spouseBornBefore1961: 'c2_7[0]',
+      spouseBlind: 'c2_8[0]',
+    }),
+  },
+};
+
+const sch1A: FormMap = {
+  template: 'forms/2025/f1040s1a.pdf',
+  numbers: 'irs',
+  text: {
+    ...at(F1, {
+      name: 'f1_01[0]',
+      ssn: 'f1_02[0]',
+      'sch1A.1': 'f1_03[0]',
+      'sch1A.2e': 'f1_08[0]',
+      'sch1A.3': 'f1_09[0]',
+    }),
+    ...at(F2, {
+      'sch1A.31': 'f2_15[0]',
+      'sch1A.32': 'f2_16[0]',
+      'sch1A.33': 'f2_17[0]',
+      'sch1A.34': 'f2_18[0]',
+      'sch1A.35': 'f2_19[0]',
+      'sch1A.36a': 'f2_20[0]',
+      'sch1A.36b': 'f2_21[0]',
+      'sch1A.37': 'f2_22[0]',
+      'sch1A.38': 'f2_23[0]',
+    }),
+  },
+  checks: {},
 };
 
 const sch2: FormMap = {
@@ -237,4 +283,4 @@ const f8960: FormMap = {
   checks: {},
 };
 
-export const FEDERAL_MAPS: Record<FederalFormId, FormMap> = { f1040, sch2, sch3, schA, schB, f8959, f8960 };
+export const FEDERAL_MAPS: Record<FederalFormId, FormMap> = { f1040, sch1A, sch2, sch3, schA, schB, f8959, f8960 };
