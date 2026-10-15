@@ -7,7 +7,7 @@ import { taxableDistribution } from '../federal/retirement';
 import { ownerScheduleCIncome } from '../federal/business';
 import { ownerScheduleEIncome } from '../federal/scheduleE';
 import { normalizeLot } from '../federal/scheduleD';
-import type { Form1099R, Owner, Person, TaxFacts } from '../../shared/facts';
+import type { Form1099R, Owner, Person, TaxFacts, W2 } from '../../shared/facts';
 import { mdCapitalGainSurtax, mdExemptionValue, mdItemizedPhaseOut, mdLocalTax, mdStateTax } from './mdTax';
 
 export type MdFormId = 'md502' | 'md502su' | 'md502cg' | 'md502r' | 'md502cr' | 'md500dm' | 'md502up' | 'mdpv';
@@ -17,7 +17,11 @@ export interface MdResult {
   itemizing: boolean;
   totalTax: Cents;
   totalPayments: Cents;
+  /** Form 502 line 50 (after interest and any amount applied to next year). */
   refund: Cents;
+  /** Form 502 line 49. */
+  appliedToNextYear: Cents;
+  /** Form 502 line 52. */
   amountOwed: Cents;
   /** Flat local rate as printed after ".0" on line 28 (e.g. "320" for 3.20%), or null for bracket counties. */
   localRatePrinted: string | null;
@@ -40,6 +44,13 @@ export function ageAtEndOf2025(dob: string | null | undefined): number | null {
   const year = Number.parseInt(dob.slice(0, 4), 10);
   return Number.isFinite(year) && year > 1900 && year <= 2025 ? 2025 - year : null;
 }
+
+/** A W-2 whose state lines are all Maryland. */
+export const isMdOnlyW2 = (w: W2): boolean => w.stateLines.length > 0 && w.stateLines.every((s) => s.state === 'MD');
+
+/** W-2 box 14 amounts labeled as Maryland state retirement pickup ("STPICKUP"): Form 502 line 3 adds them back. */
+export const statePickup = (f: TaxFacts): Cents =>
+  sumCents(f.w2s.flatMap((w) => w.box14.filter((b) => /PICK\s*-?\s*UP/i.test(b.description)).map((b) => b.amount)));
 
 const qualifiesForPensionExclusion = (person: Person | null | undefined): boolean =>
   Boolean(person && (is65(person.dateOfBirth) || person.totallyDisabled));
@@ -232,30 +243,25 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     l.set('md500dm.1.c1', dmCol1, 'Form 500DM line 1 col 1: Federal depreciation');
     l.set('md500dm.1.c2', dmCol2, 'Form 500DM line 1 col 2: Depreciation without decoupled provisions');
     l.set('md500dm.1.c3', dmDiff1, 'Form 500DM line 1 col 3: Depreciation decoupling difference');
-    fl.set('md500dm.1.c1', dmCol1, 'Form 500DM line 1 col 1: Federal depreciation');
-    fl.set('md500dm.1.c2', dmCol2, 'Form 500DM line 1 col 2: Depreciation without decoupled provisions');
-    fl.set('md500dm.1.c3', dmDiff1, 'Form 500DM line 1 col 3: Depreciation decoupling difference');
     if (pteDm !== 0) {
       l.set('md500dm.9.c3', pteDm, 'Form 500DM line 9 col 3: Decoupling from PTE');
-      fl.set('md500dm.9.c3', pteDm, 'Form 500DM line 9 col 3: Decoupling from PTE');
     }
     const netDm = dmDiff1 + pteDm;
     if (netDm > 0) dmAddition5 = netDm;
     else if (netDm < 0) dmSubtractionBb = Math.abs(netDm);
   }
   const L5 = l.set('md502.5', dmAddition5, 'Other additions (Form 500DM decoupling modification, code l)');
-  if (dmAddition5 > 0) fl.set('md502.5', dmAddition5, 'Other additions (Form 500DM decoupling modification, code l)');
-  const L6 = l.set('md502.6', L2 + L5, 'Total additions');
+  const L3 = l.set('md502.3', roundToDollar(statePickup(f)), 'State retirement pickup (W-2 box 14)');
+  const L6 = l.set('md502.6', L2 + L3 + L5, 'Total additions');
   const L7 = l.set('md502.7', L1 + L6, 'Federal AGI + additions');
-  fl.set('md502.7', L7, 'Federal AGI + additions');
 
   // Subtractions (10a = Pension exclusion Worksheet 13A; 11 = Social Security; 13 = 502SU; 14 = Two-income Worksheet 13D)
+  const L8 = l.set('md502.8', fl.get('sch1.1'), 'State tax refunds included in federal income');
   const L10a = l.set('md502.10a', ret.line10a, 'Pension exclusion', 'Worksheet 13A');
   const L11 = l.set('md502.11', fl.get('f1040.6b'), 'Taxable Social Security benefits');
   const usObligations = sumCents(f.f1099Int.map((x) => x.box3UsTreasuryInterest));
   const SUab = l.set('md502su.ab', usObligations, 'Income from U.S. Government obligations');
   const SUbb = l.set('md502su.bb', dmSubtractionBb, 'Net decoupling subtraction modification (Form 500DM, code bb)');
-  if (dmSubtractionBb > 0) fl.set('md502su.bb', dmSubtractionBb, 'Net decoupling subtraction modification (Form 500DM, code bb)');
   const persons = status === 'mfj' ? 2 : 1;
   const SUhh = l.set(
     'md502su.hh',
@@ -268,7 +274,6 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     l.set('md502su.total', SUab + SUbb + SUhh, 'Total subtractions from Form 502SU'),
     'Subtractions from Form 502SU',
   );
-  fl.set('md502.13', L13, 'Subtractions from Form 502SU');
   let L14 = 0;
   if (status === 'mfj' && f.spouse) {
     const you =
@@ -280,7 +285,7 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     L14 = Math.min(usd(1_200), Math.max(0, Math.min(you, spouse)));
   }
   l.set('md502.14', L14, 'Two-income subtraction', 'Worksheet 13D');
-  const L15 = l.set('md502.15', L10a + L11 + L13 + L14, 'Total subtractions');
+  const L15 = l.set('md502.15', L8 + L10a + L11 + L13 + L14, 'Total subtractions');
   const L16 = l.set('md502.16', L7 - L15, 'Maryland adjusted gross income');
 
   // Deduction: itemizing in MD is allowed only if you itemized federally.
@@ -329,6 +334,8 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
 
   // Payments
   const mdW2 = f.w2s.filter((w) => w.stateLines.some((s) => s.state === 'MD'));
+  // Local tax counts only on a W-2 for Maryland alone: Maryland's county tax rides with the state tax, and a local
+  // line on a W-2 for another state too is that place's tax (blocked in flags).
   const md1099R = (f.f1099R ?? []).filter((r) => r.stateLines.some((s) => s.state === 'MD'));
   const md1099Nec = (f.f1099Nec ?? []).filter((n) => n.stateLines.some((s) => s.state === 'MD'));
   const L41 = l.set(
@@ -336,10 +343,11 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     sumCents([
       ...mdW2.flatMap((w) => [
         ...w.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax),
-        ...w.localLines.map((x) => x.localTax),
+        ...(isMdOnlyW2(w) ? w.localLines.map((x) => x.localTax) : []),
       ]),
       ...md1099R.flatMap((r) => r.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
       ...md1099Nec.flatMap((n) => n.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
+      ...(f.f1099G ?? []).flatMap((g) => g.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
     ]),
     'Maryland and local tax withheld',
   );
@@ -352,7 +360,6 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   const L46 = l.set('md502.46', L41 + L43, 'Total payments and credits');
   const L47 = l.set('md502.47', Math.max(0, L40 - L46), 'Balance due');
   const L48 = l.set('md502.48', Math.max(0, L46 - L40), 'Overpayment');
-  l.set('md502.50', L48, 'Refund');
 
   // Form 502UP — Underpayment of Estimated Income Tax by Individuals
   let needsForm502UP = false;
@@ -376,12 +383,15 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
     const pctPpm: [number, number, number, number] = [250_000, 500_000, 750_000, 1_000_000];
     const factorsPpm: [number, number, number, number] = [19_200, 28_900, 38_100, 26_600]; // 0.0192, 0.0289, 0.0381, 0.0266
     const whPerQ = roundToDollar(Math.round(L41 / 4));
-    const estByQ: [Cents, Cents, Cents, Cents] = [
-      roundToDollar(sr.priorYearApplied) + roundToDollar(sr.estimatedPayments[0] ?? 0),
-      roundToDollar(sr.estimatedPayments[1] ?? 0),
-      roundToDollar(sr.estimatedPayments[2] ?? 0),
-      roundToDollar(sr.estimatedPayments[3] ?? 0) + sumCents(sr.estimatedPayments.slice(4).map(roundToDollar)),
-    ];
+    const byQ = sr.estimatedByQuarter;
+    const estByQ: [Cents, Cents, Cents, Cents] = byQ
+      ? [roundToDollar(sr.priorYearApplied) + roundToDollar(byQ[0]), roundToDollar(byQ[1]), roundToDollar(byQ[2]), roundToDollar(byQ[3])]
+      : [
+          roundToDollar(sr.priorYearApplied) + roundToDollar(sr.estimatedPayments[0] ?? 0),
+          roundToDollar(sr.estimatedPayments[1] ?? 0),
+          roundToDollar(sr.estimatedPayments[2] ?? 0),
+          roundToDollar(sr.estimatedPayments[3] ?? 0) + sumCents(sr.estimatedPayments.slice(4).map(roundToDollar)),
+        ];
 
     let cumPaid = 0;
     let totalInterest = 0;
@@ -403,7 +413,18 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
       l.set('md502.51', L51, 'Interest charges for underestimated tax (Form 502UP)');
     }
   }
-  l.set('md502.52', L47 + L51, 'Total amount due');
+  // 2025 Resident Booklet, "Overpayment": interest comes out of the overpayment first (line 50 = 48 − 49 − 51);
+  // interest larger than the overpayment zeroes lines 49 and 50 and leaves the difference due on line 52.
+  const available = Math.max(0, L48 - L51);
+  const want49 = sr.applyToNextYear === 'all' ? available : roundToDollar(Math.max(0, sr.applyToNextYear ?? 0));
+  const L49 = l.set('md502.49', Math.min(available, want49), `Overpayment applied to ${f.taxYear + 1} estimated tax`);
+  const L50 = l.set('md502.50', available - L49, 'Refund', 'Line 48 − line 49 − line 51');
+  const L52 = l.set(
+    'md502.52',
+    L48 > 0 ? Math.max(0, L51 - L48) : L47 + L51,
+    'Total amount due',
+    L48 > 0 ? 'Line 51 − line 48' : 'Line 47 + line 51',
+  );
 
   const rule = p.local[county];
   const localRatePrinted = rule.kind === 'flat' ? String(Math.round(rule.rate / 100)).padStart(3, '0') : null;
@@ -414,14 +435,15 @@ export function computeMd(f: TaxFacts, fed: FederalResult, p: MdParams = MD_2025
   if (subjectToSurtax > 0) forms.push('md502cg');
   if (needsForm500DM) forms.push('md500dm');
   if (needsForm502UP) forms.push('md502up');
-  if (L47 + L51 > 0) forms.push('mdpv');
+  if (L52 > 0) forms.push('mdpv');
   return {
     ledger: l,
     itemizing,
     totalTax: L40,
     totalPayments: L46,
-    refund: L48,
-    amountOwed: L47 + L51,
+    refund: L50,
+    appliedToNextYear: L49,
+    amountOwed: L52,
     localRatePrinted,
     exemptions: { you, spouse, age65, blind, extra, total: (spouse ? 2 : 1) + extra },
     pensionExclusion: { you: ret.youExcluded > 0, spouse: ret.spouseExcluded > 0 },

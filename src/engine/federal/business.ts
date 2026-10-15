@@ -1,4 +1,4 @@
-import { rateToDollar, roundToDollar, sumCents, type Cents } from '../money';
+import { mulDivToDollar, rateToDollar, roundToDollar, sumCents, type Cents } from '../money';
 import type { Ledger } from '../ledger';
 import type { FedParams } from '../params/fed2025';
 import type { BusinessAssetDisposition, Owner, ScheduleCBusiness, TaxFacts } from '../../shared/facts';
@@ -71,6 +71,8 @@ export interface BusinessResult {
   };
   /** Net qualified business income (or loss) from the Schedule C trade or business after §199A adjustments (1/2 SE tax, SEP, SE health insurance). */
   netQbi: Cents;
+  /** Deductible part of SE tax attributable to K-1 self-employment earnings (reduces those K-1s' QBI). */
+  seTaxForK1s: Cents;
   /** Printed percentage strings for Form 8829 lines 3, 7, 41 and Form 7206 line 6. */
   printed: {
     f8829Pct3: string;
@@ -84,14 +86,14 @@ export interface BusinessResult {
 }
 
 /** Age at end of 2025 for Form 7206 line 2 long-term care insurance limit. */
-function ageAtEndOf2025(dob: string | null | undefined): number {
+export function ageAtEndOf2025(dob: string | null | undefined): number {
   if (!dob || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) return 50;
   if (dob === '1961-01-01') return 65;
   const y = Number.parseInt(dob.slice(0, 4), 10);
   return Number.isFinite(y) ? 2025 - y : 50;
 }
 
-function ltcLimitForAge(age: number, p: FedParams): Cents {
+export function ltcLimitForAge(age: number, p: FedParams): Cents {
   const lim = p.selfEmployment.longTermCareAgeLimits;
   if (age <= 40) return lim.age40OrYounger;
   if (age <= 50) return lim.age41To50;
@@ -339,6 +341,7 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
       schedule1Adjustments: 0,
       homeOfficeScheduleAReduction: { mortgageInterest: 0, realEstateTax: 0 },
       netQbi: 0,
+      seTaxForK1s: 0,
       printed: emptyPrinted,
       form4797: empty4797,
     };
@@ -400,6 +403,7 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
       schedule1Adjustments: S1_26,
       homeOfficeScheduleAReduction: { mortgageInterest: 0, realEstateTax: 0 },
       netQbi: 0,
+      seTaxForK1s: deductibleSeTax,
       printed: emptyPrinted,
       form4797,
     };
@@ -650,9 +654,13 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
   const needsScheduleC = true;
   const needsSchedule1 = needsScheduleC || form4797.needs4797 || S1_10 !== 0 || S1_26 !== 0;
 
-  // 9. Net QBI from this Schedule C business (IRC §199A(c)(3) & Form 8995 instructions:
-  //Schedule C net profit/loss + ordinary §1245 gain/loss on Form 4797 attributable to the business - deductible SE tax - SEP deduction - SE health insurance deduction).
-  const netQbi = L31 - deductibleSeTax - sepDeduction - seHealthInsuranceDeduction;
+  // 9. Net QBI from this Schedule C business (Reg. §1.199A-3(b)(1)(vi)): net profit or loss, minus the deductible part of
+  // SE tax, the SEP deduction and the SE health insurance deduction attributable to it. When K-1s also carry SE earnings,
+  // the deductible SE tax is shared in proportion to each source's positive SE income.
+  const schCSe = Math.max(0, L31);
+  const k1SePositive = Math.max(0, k1SeTotal);
+  const seTaxForSchC = schCSe + k1SePositive > 0 ? mulDivToDollar(deductibleSeTax, schCSe, schCSe + k1SePositive) : 0;
+  const netQbi = L31 - seTaxForSchC - sepDeduction - seHealthInsuranceDeduction;
 
   return {
     activeBusiness: biz,
@@ -672,6 +680,7 @@ export function computeBusinessAndSchedule1(f: TaxFacts, p: FedParams, l: Ledger
     schedule1Adjustments: S1_26,
     homeOfficeScheduleAReduction,
     netQbi,
+    seTaxForK1s: deductibleSeTax - seTaxForSchC,
     printed,
     form4797,
   };

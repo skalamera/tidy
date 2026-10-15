@@ -113,7 +113,8 @@ export class GeminiChatModel implements ChatModel {
     const calls: ToolCall[] = parts.flatMap(({ functionCall: f }) =>
       f?.name ? [{ id: f.id ?? '', name: f.name, input: f.args ?? {} }] : [],
     );
-    const message: Content = { role: 'model', parts };
+    // Nothing came back (blocked, or an empty stream): an empty model turn would be rejected on every later request.
+    const message: Content | null = parts.length > 0 ? { role: 'model', parts } : null;
     return { message, text, calls };
   }
 }

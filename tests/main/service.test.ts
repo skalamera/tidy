@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FakeLlm } from '../../src/main/ai/llm';
@@ -13,6 +13,7 @@ import { TidyService, type ServiceDeps } from '../../src/main/service';
 import { ChatStore } from '../../src/main/chats';
 import { ReturnStore } from '../../src/main/store';
 import { buildView, type AppView } from '../../src/core/view';
+import { reconcile } from '../../src/core/reconcile';
 import type { AiProvider } from '../../src/shared/ai';
 import { IPC } from '../../src/shared/ipc';
 import { doc, priorYear, w2Extraction } from '../fixtures/state';
@@ -196,28 +197,162 @@ describe('TidyService', () => {
     expect(service.view().aiProvider).toBe('gemini');
   });
 
-  it('applies an accepted chat proposal as an override and refuses to apply it twice', async () => {
+  it('applies an accepted chat proposal as an override, refuses to apply it twice, and undoes it', async () => {
     const { service, store } = await setup();
+    const wages = ['w2s', 'w2-d1-0', 'box1Wages'];
     await store.update((d) => {
+      d.documents.push(doc('d1', [w2Extraction()]));
       d.proposals.push({
         id: 'p1',
-        sectionId: 'profile',
-        description: 'Answer “No” to the digital assets question',
-        path: ['digitalAssets'],
-        value: false,
-        reason: 'You said so in chat',
+        sectionId: 'wages',
+        description: 'Fix a typo',
+        path: wages,
+        value: 8_600_000,
+        reason: 'The scan was blurry',
         status: 'pending',
         createdAt: NOW(),
       });
     });
     expect(await service.decideProposal('p1', true)).toEqual({ ok: true });
-    expect(store.get().overrides).toMatchObject([{ path: ['digitalAssets'], value: false, createdBy: 'ai_proposal' }]);
+    expect(store.get().overrides).toMatchObject([
+      {
+        path: wages,
+        value: 8_600_000,
+        createdBy: 'ai_proposal',
+        sectionId: 'wages',
+        proposalId: 'p1',
+        change: { label: 'W-2 from Acme Corp: Box 1 wages', before: '$85,000', after: '$86,000' },
+      },
+    ]);
+    expect(service.view().overrides).toMatchObject([{ sectionId: 'wages', applied: true }]);
     expect(await service.decideProposal('p1', true)).toEqual({ ok: false, error: expect.any(String) });
+
+    const overrideId = store.get().overrides[0].id;
+    expect(await service.undoOverride(overrideId)).toEqual({ ok: true });
+    expect(store.get().overrides).toEqual([]);
+    expect(store.get().proposals[0].status).toBe('undone');
+    expect(await service.undoOverride(overrideId)).toEqual({ ok: false, error: expect.any(String) });
+  });
+
+  it('turns only a valid suggestion from chat into a card, worded by Tidy instead of the AI', async () => {
+    const outputs: unknown[] = [];
+    let round = 0;
+    const chat: ChatModel = {
+      userMessage: (texts) => ({ role: 'user', texts }),
+      toolResultsMessage: (results) => {
+        outputs.push(...results.map((r) => r.output));
+        return { role: 'user', results };
+      },
+      turn: async () => {
+        round++;
+        if (round > 1) return { message: { role: 'assistant', text: 'Done' }, text: 'Done', calls: [] };
+        const propose = (id: string, path: unknown, value: unknown) => ({
+          id,
+          name: 'propose_change',
+          input: { section_id: 'wages', description: 'Just a small typo fix', path, value, reason: 'Blurry scan' },
+        });
+        return {
+          message: { role: 'assistant' },
+          text: '',
+          calls: [
+            { id: 'c1', name: 'find_facts', input: { query: 'acme box 1' } },
+            propose('c2', ['__proto__', 'polluted'], 1),
+            propose('c3', ['w2s', 'w2-d1-0', 'box1Wages'], '8600000'),
+            propose('c4', ['filingStatus'], 'single'),
+            propose('c5', ['w2s', 'w2-d1-0', 'box1Wages'], 0),
+          ],
+        };
+      },
+    };
+    const { service, store } = await setup({ connect: async (provider) => ({ provider, llm: new FakeLlm(respond), chat }) }, async (s) =>
+      s.update((d) => void d.documents.push(doc('d1', [w2Extraction()]))),
+    );
+    await service.setApiKey('anthropic', GOOD_KEY);
+    await service.sendChat('My wages look wrong');
+    expect(outputs[0]).toEqual({
+      facts: [{ path: ['w2s', 'w2-d1-0', 'box1Wages'], label: 'W-2 from Acme Corp: Box 1 wages', value: 8_500_000 }],
+      total: 1,
+    });
+    expect(outputs.slice(1, 4)).toEqual([{ error: expect.any(String) }, { error: expect.any(String) }, { error: expect.any(String) }]);
+    expect(outputs[4]).toEqual({ proposal_id: expect.any(String), status: expect.any(String) });
+    expect(store.get().proposals).toMatchObject([
+      {
+        path: ['w2s', 'w2-d1-0', 'box1Wages'],
+        value: 0,
+        change: { label: 'W-2 from Acme Corp: Box 1 wages', before: '$85,000', after: '$0' },
+      },
+    ]);
+    expect(service.view().proposals).toMatchObject([{ fits: true, change: { after: '$0' }, overrideId: null }]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('refuses a proposal whose change no longer fits, or that the math can’t handle', async () => {
+    const { service, store } = await setup();
+    await store.update((d) => {
+      d.documents.push(doc('d1', [w2Extraction()]));
+      d.proposals.push(
+        {
+          id: 'p1',
+          sectionId: 'wages',
+          description: 'x',
+          path: ['w2s', 'w2-gone-0', 'box1Wages'],
+          value: 1,
+          reason: '',
+          status: 'pending',
+          createdAt: NOW(),
+        },
+        {
+          id: 'p2',
+          sectionId: 'wages',
+          description: 'x',
+          path: ['__proto__', 'polluted'],
+          value: 1,
+          reason: '',
+          status: 'pending',
+          createdAt: NOW(),
+        },
+        {
+          id: 'p3',
+          sectionId: 'wages',
+          description: 'x',
+          path: ['w2s', 'w2-d1-0', 'box1Wages'],
+          value: '086000',
+          reason: '',
+          status: 'pending',
+          createdAt: NOW(),
+        },
+      );
+    });
+    for (const id of ['p1', 'p2', 'p3'])
+      expect(await service.decideProposal(id, true)).toEqual({ ok: false, error: expect.stringContaining('no longer fits') });
+    expect(store.get().overrides).toEqual([]);
+    expect(store.get().proposals.map((p) => p.status)).toEqual(['rejected', 'rejected', 'rejected']);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   it('will not export until every section is approved', async () => {
     const { service } = await setup();
     expect(await service.exportPackage()).toEqual({ ok: false, error: expect.stringContaining('Approve every section') });
+  });
+
+  it('applies a checked table of amounts: corrections replace what was read, and every line counts as checked', async () => {
+    const { service, store } = await setup();
+    await store.update((d) => {
+      d.documents.push(
+        doc('d1', [w2Extraction()], { fieldChecks: { '0:stateLines.0.stateTax': 'mismatch', '0:stateLines.0.stateWages': 'unverified' } }),
+      );
+      reconcile(d);
+    });
+    const id = 'confirm-group:d1:0:stateLines';
+    expect(store.get().questions.some((q) => q.id === id)).toBe(true);
+    await service.answer(id, JSON.stringify({ 'stateLines.0.stateTax': 4_200_00, nope: 1 })); // a line it didn't ask about
+    expect(store.get().documents[0].fieldChecks['0:stateLines.0.stateTax']).toBe('mismatch'); // refused whole
+    await service.answer(id, JSON.stringify({ 'stateLines.0.stateTax': 4_200_00, 'stateLines.0.stateWages': 8_500_000 }));
+    const doc0 = store.get().documents[0];
+    const line = (doc0.extractions[0].data as { stateLines: { stateTax: { amount: string; quote: string | null } }[] }).stateLines[0];
+    expect(line.stateTax).toMatchObject({ amount: '4200.00', quote: 'Corrected by you' });
+    expect(doc0.fieldChecks).toMatchObject({ '0:stateLines.0.stateTax': 'verified', '0:stateLines.0.stateWages': 'verified' });
+    expect(store.get().questions.some((q) => q.id === id)).toBe(false);
   });
 
   it('keeps an identity answer only when it is usable, in one normal form', async () => {
@@ -359,5 +494,68 @@ describe('TidyService', () => {
     expect('chat' in store.get()).toBe(false);
     await new TidyService(deps).init(); // the next start finds nothing left to move
     expect(chats.all()).toHaveLength(1);
+  });
+
+  it('backs up the return with a passphrase, and restores it on another Mac', async () => {
+    const a = await setup();
+    await a.store.update((d) => {
+      d.documents.push(doc('d1', [w2Extraction()]));
+    });
+    await a.store.putDocument('d1', Buffer.from('%PDF-1.7 the W-2'));
+    const file = path.join(await mkdtemp(path.join(tmpdir(), 'tidy-backup-')), 'Tidy backup.tidybackup');
+    const saved = await new TidyService({ ...a.deps, savePath: async () => file }).exportBackup('a long passphrase');
+    expect(saved).toEqual({ ok: true, path: file });
+    expect((await readFile(file)).includes(Buffer.from('Alex Rivera'))).toBe(false); // locked, not just zipped
+
+    const b = await setup({ pickBackupFile: async () => file, readFile: (f) => readFile(f) });
+    expect(await b.service.restoreBackup('the wrong passphrase')).toEqual({
+      ok: false,
+      error: 'That passphrase doesn’t open this backup.',
+    });
+    expect(b.store.get().documents).toEqual([]);
+    expect(await b.service.restoreBackup('a long passphrase')).toEqual({ ok: true });
+    expect(b.store.get().documents.map((d) => d.id)).toEqual(['d1']);
+    expect((await b.store.getDocument('d1')).toString()).toBe('%PDF-1.7 the W-2');
+    expect(await a.service.exportBackup('short')).toEqual({ ok: false, error: expect.stringContaining('at least 10 characters') });
+  });
+
+  it('refuses a backup whose document ids could escape Tidy’s folder', async () => {
+    const { sealWithPassphrase } = await import('../../src/main/vault');
+    const a = await setup();
+    const evil = { ...a.store.get(), documents: [{ ...doc('x', []), id: '../../escape' }] };
+    const file = path.join(await mkdtemp(path.join(tmpdir(), 'tidy-backup-')), 'evil.tidybackup');
+    const payload = {
+      format: 'tidy-backup',
+      version: 1,
+      taxYear: 2025,
+      exportedAt: 'now',
+      state: evil,
+      documents: { '../../escape': 'AA==' },
+    };
+    await writeFile(file, await sealWithPassphrase('a long passphrase', Buffer.from(JSON.stringify(payload))));
+    const b = await setup({ pickBackupFile: async () => file, readFile: (f) => readFile(f) });
+    expect(await b.service.restoreBackup('a long passphrase')).toEqual({
+      ok: false,
+      error: expect.stringContaining('nothing was changed'),
+    });
+    expect(b.store.get().documents).toEqual([]);
+  });
+
+  it('converts iPhone photos, and says why a file wasn’t added', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'tidy-add-'));
+    const heic = path.join(dir, 'IMG_0001.HEIC');
+    const docx = path.join(dir, 'notes.docx');
+    await writeFile(heic, 'heic bytes');
+    await writeFile(docx, 'words');
+    const { service, store } = await setup({ heicToJpeg: async () => Buffer.from('jpeg bytes') });
+    expect(await service.addPaths([heic, docx, dir])).toEqual({
+      added: 1,
+      duplicates: 0,
+      rejected: [
+        'Tidy can’t read notes.docx. It reads PDFs, photos (JPG, PNG or HEIC) and CSV files.',
+        `${path.basename(dir)} is a folder. Add the files inside it instead.`,
+      ],
+    });
+    expect(store.get().documents.map((d) => [d.fileName, d.mimeType])).toEqual([['IMG_0001.jpg', 'image/jpeg']]);
   });
 });

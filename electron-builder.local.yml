@@ -1,0 +1,12 @@
+# Personal build for this Mac (npm run build:mac): signed ad hoc, so electron-builder never uses or prompts for a
+# signing identity in the login keychain. Gatekeeper blocks an ad hoc app downloaded from the internet, so what you
+# sell is the release build (electron-builder.yml, npm run release:mac).
+extends: electron-builder.yml
+mac:
+  category: public.app-category.finance
+  target:
+    - target: dmg
+      arch: [arm64]
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false

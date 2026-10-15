@@ -1,11 +1,17 @@
 import { formatUsd, sumCents } from '../engine/money';
 import type { MdCounty } from '../engine/params/md2025';
 import type { PriorYearExtractionT } from '../shared/schemas/extraction';
-import { parseAddress, parseName, ssnDigits } from '../shared/answers';
-import type { FilingStatus, Person, TaxFacts } from '../shared/facts';
+import { parseAddress, parseLines, parseName, ssnDigits } from '../shared/answers';
+import type { FilingStatus, Person, ScheduleCBusiness, TaxFacts } from '../shared/facts';
 import type { AppState, Question, SectionId } from '../shared/state';
 import { amountCents } from './amount';
+import { refundKnownFromDocuments } from './deriveFacts';
+import { isIraDistribution, reportedTaxable } from '../engine/federal/retirement';
+import { foreignTaxPaid, simpleForeignTaxCreditAllowed } from '../engine/federal/schedule3';
+import { isMdOnlyW2 } from '../engine/md/form502';
+import { FEDERAL_WINDOWS, STATE_WINDOWS, suggestedPriorYearStatePayments, suggestedWindows } from './estimates';
 import MD_SUBDIVISIONS from '../shared/data/md-subdivisions-2025.json';
+import SC_CODES from '../shared/data/schedule-c-codes-2025.json';
 import { MD_UNINCORPORATED_PLACES } from '../shared/data/md-unincorporated';
 
 export interface RuleContext {
@@ -14,7 +20,7 @@ export interface RuleContext {
   prior: PriorYearExtractionT | null;
 }
 
-export type QuestionDraft = Pick<Question, 'kind' | 'prompt' | 'help' | 'choices' | 'suggested' | 'blocking'>;
+export type QuestionDraft = Pick<Question, 'kind' | 'prompt' | 'help' | 'choices' | 'suggested' | 'blocking' | 'suggestedLines'>;
 
 /** A deterministic question: when it applies, what to ask, and how the answer changes the facts. */
 export interface Rule {
@@ -54,7 +60,34 @@ const money = (prompt: string, help: string): QuestionDraft => ({
 const cents = (answer: string) => Number.parseInt(answer, 10) || 0;
 
 const answerOf = (c: RuleContext, id: string) => c.state.questions.find((q) => q.id === id)?.answer ?? null;
+const newDeductions = (f: TaxFacts) => (f.newDeductions ??= { tips: 0, overtime: 0, carLoans: [] });
+/** The i-th new-vehicle loan of Schedule 1-A Part IV, created on first use. */
+const carLoan = (f: TaxFacts, i: number) => {
+  const loans = newDeductions(f).carLoans;
+  while (loans.length <= i) loans.push({ vin: '', interest: 0 });
+  return loans[i]!;
+};
+const vinQuestion = (prompt: string): QuestionDraft => ({
+  kind: 'text',
+  prompt,
+  help: 'The 17 characters on your registration, insurance card or loan statement. Schedule 1-A needs it.',
+  choices: null,
+  suggested: null,
+  blocking: true,
+});
 const stateName = (s: string | null) => (s === 'MD' ? 'Maryland' : 'your state');
+
+const HOME_OFFICE_LINES = [
+  { value: 'businessSqFt', label: 'The space you use for the business' },
+  { value: 'totalSqFt', label: 'Your whole home' },
+];
+
+const medicalLines = (f: TaxFacts) => [
+  { value: 'premiums', label: 'Health insurance you paid for yourself, including Medicare and Medigap' },
+  { value: 'ltcYou', label: f.filingStatus === 'mfj' ? 'Long-term care insurance (yours)' : 'Long-term care insurance' },
+  ...(f.filingStatus === 'mfj' ? [{ value: 'ltcSpouse', label: 'Long-term care insurance (your spouse’s)' }] : []),
+  { value: 'other', label: 'Doctors, dentists, hospitals, prescriptions, glasses, hearing aids and other care' },
+];
 const countyLabel = (county: string) => (county.startsWith('Baltimore') ? county : `${county} County`);
 
 type Subdivision = (typeof MD_SUBDIVISIONS)[number];
@@ -87,8 +120,69 @@ const askWhere = (c: RuleContext) => priorHome(c.prior) === null || answerOf(c, 
 const exemptInterest = (f: TaxFacts) =>
   sumCents([...f.f1099Int.map((x) => x.box8TaxExemptInterest), ...f.f1099Div.map((x) => x.box12ExemptInterestDividends)]);
 /** True when an uploaded payment record already covers estimated payments of this kind. */
-const hasEstimateDocs = (c: RuleContext, kind: 'federal_estimate' | 'state_estimate') =>
-  c.state.documents.some((d) => d.status === 'done' && d.extractions.some((x) => x.form === 'payment' && x.data.kind === kind));
+/** Help for a payments-by-date question: where its starting values came from. */
+const fromRecords = (s: { records: number; undated: number }, otherwise: string) =>
+  s.records === 0
+    ? otherwise
+    : `Filled in from ${s.records === 1 ? 'the payment record' : `${s.records} payment records`} you uploaded. Check them against your online account and add any payment that’s missing.${
+        s.undated
+          ? ` ${s.undated === 1 ? 'One record has' : `${s.undated} records have`} no date, so add ${s.undated === 1 ? 'it' : 'them'} yourself.`
+          : ''
+      }`;
+
+/** Schedule C Part II lines (depreciation and depletion need Form 4562, which Tidy doesn't fill in yet). */
+export const BUSINESS_EXPENSE_LINES = [
+  { value: 'advertising', label: 'Advertising (line 8)' },
+  { value: 'carAndTruck', label: 'Car and truck expenses (line 9)' },
+  { value: 'commissionsAndFees', label: 'Commissions and fees (line 10)' },
+  { value: 'contractLabor', label: 'Contract labor (line 11)' },
+  { value: 'employeeBenefitPrograms', label: 'Employee benefit programs (line 14)' },
+  { value: 'insurance', label: 'Insurance, other than health (line 15)' },
+  { value: 'interestMortgage', label: 'Mortgage interest paid to banks (line 16a)' },
+  { value: 'interestOther', label: 'Other interest (line 16b)' },
+  { value: 'legalAndProfessional', label: 'Legal and professional services (line 17)' },
+  { value: 'officeExpense', label: 'Office expense (line 18)' },
+  { value: 'pensionAndProfitSharing', label: 'Pension and profit-sharing plans for employees (line 19)' },
+  { value: 'rentVehiclesMachinery', label: 'Rent or lease of vehicles and equipment (line 20a)' },
+  { value: 'rentOtherBusinessProperty', label: 'Rent or lease of other business property (line 20b)' },
+  { value: 'repairsAndMaintenance', label: 'Repairs and maintenance (line 21)' },
+  { value: 'supplies', label: 'Supplies (line 22)' },
+  { value: 'taxesAndLicenses', label: 'Taxes and licenses (line 23)' },
+  { value: 'travel', label: 'Travel (line 24a)' },
+  { value: 'deductibleMeals', label: 'Business meals: half of what you spent (line 24b)' },
+  { value: 'utilities', label: 'Utilities (line 25)' },
+  { value: 'wages', label: 'Wages paid to employees (line 26)' },
+  { value: 'otherExpenses', label: 'Other expenses (line 27b, listed in Part V)' },
+] as const;
+
+const SCHEDULE_C_CODES = SC_CODES as { code: string; label: string; group: string }[];
+
+/** The active business, made when an answer first needs it (a 1099-NEC's owner runs it until told otherwise). */
+function business(f: TaxFacts): ScheduleCBusiness {
+  const active = (f.scheduleC ?? []).find((b) => !b.closedInPriorYear);
+  if (active) return active;
+  const b: ScheduleCBusiness = {
+    id: 'schc-auto',
+    owner: f.f1099Nec?.[0]?.owner ?? 'taxpayer',
+    principalBusiness: '',
+    businessCode: '',
+    isSstb: false,
+    expenses: {},
+  };
+  f.scheduleC = [...(f.scheduleC ?? []), b];
+  return b;
+}
+
+const hasBusiness = (c: RuleContext) =>
+  (c.facts.f1099Nec ?? []).length > 0 ||
+  (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes') ||
+  answerOf(c, 'business-new') === 'yes';
+
+const businessName = (c: RuleContext) => {
+  const b = (c.facts.scheduleC ?? []).find((x) => !x.closedInPriorYear);
+  const name = b?.businessName?.trim() || b?.principalBusiness?.trim();
+  return name ? `“${name}”` : 'your business';
+};
 
 export const RULES: Rule[] = [
   {
@@ -234,13 +328,11 @@ export const RULES: Rule[] = [
   {
     id: 'foreign-accounts',
     sectionId: 'investments',
-    applies: (c) =>
-      sumCents(c.facts.f1099Int.map((x) => x.box1Interest)) > 150_000 ||
-      sumCents(c.facts.f1099Div.map((x) => x.box1aOrdinaryDividends)) > 150_000,
+    applies: () => true,
     build: () =>
       yesNo(
         'At any time in 2025, did you have a bank or investment account outside the U.S.?',
-        'Schedule B asks this whenever interest or dividends are over $1,500. Accounts at U.S. firms that hold foreign stocks don’t count.',
+        'Schedule B asks everyone with a foreign account, whatever its interest. Accounts at U.S. firms that hold foreign stocks don’t count.',
       ),
     apply: (a, f) => {
       f.foreignAccounts.hasForeignAccount = a === 'yes';
@@ -258,6 +350,43 @@ export const RULES: Rule[] = [
     apply: (a, f) => {
       f.foreignAccounts.foreignTrust = a === 'yes';
     },
+  },
+  {
+    id: 'state-refund',
+    sectionId: 'wages',
+    // Asked unless documents say (a 1099-G, or the 2024 state return), or the 2024 return shows it can't be taxable.
+    applies: (c) =>
+      !refundKnownFromDocuments(c.facts, c.prior) && c.prior?.itemized !== null && c.prior?.itemized?.salesTaxElected !== true,
+    build: () =>
+      yesNo(
+        'Did you get a refund of 2024 state or local income tax during 2025, or apply one to your 2025 estimated tax?',
+        'Part of it can be taxable if you itemized deductions on your 2024 return. A 1099-G from the state shows it.',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'state-refund-amount',
+    sectionId: 'wages',
+    applies: (c) => answerOf(c, 'state-refund') === 'yes',
+    build: () =>
+      money(
+        'How much was it, including any amount you applied to your 2025 estimated tax?',
+        'Box 2 of your 1099-G, or your state tax account online.',
+      ),
+    apply: (a, f) => {
+      if (f.stateRefund) f.stateRefund.refund = Math.max(0, cents(a));
+    },
+  },
+  {
+    id: 'prior-itemized',
+    sectionId: 'wages',
+    applies: (c) => (c.facts.stateRefund?.refund ?? 0) > 0 && (c.prior === null || c.prior.itemized === undefined),
+    build: () =>
+      yesNo(
+        'Did you itemize deductions on your 2024 federal return (Schedule A)?',
+        'If you took the standard deduction, none of your 2024 state refund is taxable.',
+      ),
+    apply: () => {}, // "yes" needs the 2024 Schedule A (flags)
   },
   {
     id: 'state-balance-paid',
@@ -351,62 +480,84 @@ export const RULES: Rule[] = [
     apply: () => {},
   },
   {
-    id: 'senior-or-blind',
+    id: 'rentals-other',
+    sectionId: 'wages',
+    applies: () => true,
+    build: (c) => {
+      const known = (c.facts.rentals ?? []).map((r) => r.address.trim()).filter(Boolean);
+      return yesNo(
+        known.length
+          ? `Besides ${known.join(' and ')}, did you own any other rental property, or get royalties, in 2025?`
+          : 'Did you own rental property, or get royalties, in 2025?',
+        'Rent and royalties go on Schedule E. Count a vacation home you rented out for 15 days or more.',
+      );
+    },
+    apply: () => {},
+  },
+  {
+    id: 'your-birth-date',
+    sectionId: 'profile',
+    applies: () => true,
+    build: () => ({
+      kind: 'date',
+      prompt: 'What’s your date of birth?',
+      help: 'Turning 65 by the end of 2025 means a larger standard deduction, the new senior deduction and Maryland’s pension exclusion. Some limits also go by age.',
+      choices: null,
+      suggested: null,
+      blocking: true,
+    }),
+    apply: (a, f) => {
+      f.taxpayer.dateOfBirth = a;
+    },
+  },
+  {
+    id: 'spouse-birth-date',
+    sectionId: 'profile',
+    applies: (c) => c.facts.filingStatus === 'mfj',
+    build: () => ({
+      kind: 'date',
+      prompt: 'What’s your spouse’s date of birth?',
+      help: 'Your spouse’s age counts on a joint return too.',
+      choices: null,
+      suggested: null,
+      blocking: true,
+    }),
+    apply: (a, f) => {
+      if (f.spouse) f.spouse.dateOfBirth = a;
+    },
+  },
+  {
+    id: 'anyone-blind',
     sectionId: 'profile',
     applies: () => true,
     build: (c) =>
       yesNo(
         c.facts.filingStatus === 'mfj'
-          ? 'Were you or your spouse born before January 2, 1961, or is either of you legally blind?'
-          : 'Were you born before January 2, 1961, or are you legally blind?',
-        'People 65 or older, or blind, get a larger standard deduction and the new senior deduction.',
+          ? 'Was either of you legally blind on December 31, 2025?'
+          : 'Were you legally blind on December 31, 2025?',
+        'Vision no better than 20/200 in the better eye with glasses, or a field of vision of 20 degrees or less. It adds to the standard deduction.',
       ),
-    apply: () => {},
-  },
-  {
-    id: 'you-65',
-    sectionId: 'profile',
-    applies: (c) => answerOf(c, 'senior-or-blind') === 'yes',
-    build: () =>
-      yesNo('Were you born before January 2, 1961?', 'The IRS treats anyone born on or before January 1, 1961 as 65 or older for 2025.'),
     apply: (a, f) => {
-      if (a === 'yes' && (!f.taxpayer.dateOfBirth || f.taxpayer.dateOfBirth >= '1961-01-02')) f.taxpayer.dateOfBirth = '1955-01-01';
+      if (f.filingStatus !== 'mfj') f.taxpayer.blind = a === 'yes';
     },
   },
   {
     id: 'you-blind',
     sectionId: 'profile',
-    applies: (c) => answerOf(c, 'senior-or-blind') === 'yes',
-    build: () =>
-      yesNo(
-        'Were you legally blind on December 31, 2025?',
-        'Complete blindness, or vision no better than 20/200 in your better eye with glasses (or a field of vision of 20 degrees or less).',
-      ),
+    applies: (c) => c.facts.filingStatus === 'mfj' && answerOf(c, 'anyone-blind') === 'yes',
+    build: () => yesNo('Were you legally blind on December 31, 2025?', 'Answer for yourself; the next question asks about your spouse.'),
     apply: (a, f) => {
       f.taxpayer.blind = a === 'yes';
     },
   },
   {
-    id: 'spouse-65',
-    sectionId: 'profile',
-    applies: (c) => c.facts.filingStatus === 'mfj' && answerOf(c, 'senior-or-blind') === 'yes',
-    build: () =>
-      yesNo(
-        'Was your spouse born before January 2, 1961?',
-        'The IRS treats anyone born on or before January 1, 1961 as 65 or older for 2025.',
-      ),
-    apply: (a, f) => {
-      if (a === 'yes' && f.spouse && (!f.spouse.dateOfBirth || f.spouse.dateOfBirth >= '1961-01-02')) f.spouse.dateOfBirth = '1955-01-01';
-    },
-  },
-  {
     id: 'spouse-blind',
     sectionId: 'profile',
-    applies: (c) => c.facts.filingStatus === 'mfj' && answerOf(c, 'senior-or-blind') === 'yes',
+    applies: (c) => c.facts.filingStatus === 'mfj' && answerOf(c, 'anyone-blind') === 'yes',
     build: () =>
       yesNo(
         'Was your spouse legally blind on December 31, 2025?',
-        'Complete blindness, or vision no better than 20/200 in their better eye with glasses (or a field of vision of 20 degrees or less).',
+        'Vision no better than 20/200 in the better eye with glasses, or a field of vision of 20 degrees or less.',
       ),
     apply: (a, f) => {
       if (f.spouse) f.spouse.blind = a === 'yes';
@@ -426,113 +577,218 @@ export const RULES: Rule[] = [
     },
   },
   {
+    id: 'business-new',
+    sectionId: 'wages',
+    applies: (c) => !c.prior?.scheduleC && (c.facts.f1099Nec ?? []).length === 0,
+    build: () =>
+      yesNo(
+        'Did you have income in 2025 from your own business or freelance work?',
+        'For example consulting, gig or app work, or sales paid to you directly instead of as wages. Income on a 1099-NEC counts too: upload it.',
+      ),
+    apply: (a, f) => {
+      if (a === 'yes') business(f);
+    },
+  },
+  {
+    id: 'business-owner',
+    sectionId: 'wages',
+    applies: (c) => hasBusiness(c) && needsSpouse(c) && new Set((c.facts.f1099Nec ?? []).map((n) => n.owner)).size !== 1,
+    build: (c) => ({
+      kind: 'choice',
+      prompt: `Whose business is ${businessName(c)}?`,
+      help: 'Schedule C and self-employment tax go under the name of the person who runs it.',
+      choices: [
+        { value: 'taxpayer', label: `${c.facts.taxpayer.firstName.trim() || 'Me'} (you)` },
+        { value: 'spouse', label: `${c.facts.spouse?.firstName.trim() || 'My spouse'} (your spouse)` },
+      ],
+      suggested: null,
+      blocking: true,
+    }),
+    apply: (a, f) => {
+      if (a === 'taxpayer' || a === 'spouse') business(f).owner = a;
+    },
+  },
+  {
+    id: 'business-what',
+    sectionId: 'wages',
+    applies: (c) => hasBusiness(c) && !has(c.prior?.scheduleC?.principalBusiness),
+    build: () => ({
+      kind: 'text',
+      prompt: 'What does your business do, in a few words?',
+      help: 'Printed on Schedule C line A, like “Management consulting” or “Graphic design”.',
+      choices: null,
+      suggested: null,
+      blocking: true,
+    }),
+    apply: (a, f) => {
+      business(f).principalBusiness = a.slice(0, 60);
+    },
+  },
+  {
+    id: 'business-code',
+    sectionId: 'wages',
+    applies: (c) => hasBusiness(c) && !/^\d{6}$/.test(c.prior?.scheduleC?.businessCode ?? ''),
+    build: () => ({
+      kind: 'choice',
+      prompt: 'Which of these best describes your business?',
+      help: 'Schedule C line B takes the IRS code for it. Type a word or two, like “consulting” or “design”.',
+      choices: SCHEDULE_C_CODES.map((x) => ({ value: x.code, label: `${x.label} (${x.code})`, keywords: x.group })),
+      suggested: null,
+      blocking: true,
+    }),
+    apply: (a, f) => {
+      if (SCHEDULE_C_CODES.some((x) => x.code === a)) business(f).businessCode = a;
+    },
+  },
+  {
+    id: 'business-sstb',
+    sectionId: 'wages',
+    applies: (c) => hasBusiness(c),
+    build: (c) =>
+      yesNo(
+        `Is ${businessName(c)} in health, law, accounting, actuarial science, performing arts, consulting, athletics, financial services or brokerage?`,
+        'Those are “specified service” businesses. Above an income limit they get less of the 20% qualified business income deduction.',
+      ),
+    apply: (a, f) => {
+      business(f).isSstb = a === 'yes';
+    },
+  },
+  {
     id: 'business-additional-receipts',
     sectionId: 'wages',
-    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    applies: (c) => hasBusiness(c),
     build: (c) =>
       money(
         (c.facts.f1099Nec ?? []).length > 0
           ? 'Besides your Form 1099-NEC income, how much other gross receipts or sales did your business collect in 2025? Enter 0 if none.'
           : 'How much gross receipts or sales did your business collect in 2025? Enter 0 if none.',
-        'Include any consulting fees or sales not reported on a 1099-NEC.',
+        'Include fees and sales not on a 1099-NEC, like cash, card or app payments (a 1099-K counts here).',
       ),
     apply: (a, f) => {
-      if (!f.scheduleC || f.scheduleC.length === 0) {
-        f.scheduleC = [
-          {
-            id: 'schc-auto',
-            owner: f.f1099Nec?.[0]?.owner ?? 'taxpayer',
-            principalBusiness: 'Consulting services',
-            businessCode: '541610',
-            isSstb: true,
-            expenses: {},
-          },
-        ];
-      }
-      f.scheduleC[0].additionalGrossReceipts = cents(a);
+      business(f).additionalGrossReceipts = cents(a);
     },
   },
   {
     id: 'business-expenses',
     sectionId: 'wages',
-    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
-    build: () =>
-      money(
-        'How much did your business spend on operating expenses in 2025 (office, software, legal/professional, travel, etc., excluding home office, SEP, and health insurance)? Enter 0 if none.',
-        'Reported on Schedule C Part II. You can also ask Tidy in chat to break expenses out by exact Schedule C line.',
-      ),
+    applies: (c) => hasBusiness(c),
+    build: (c) => ({
+      kind: 'lines',
+      prompt: `What did ${businessName(c)} spend in 2025?`,
+      help: 'Leave a line blank if it’s 0. Don’t include a home office, retirement plan contributions for yourself, or your own health insurance: Tidy asks about those separately.',
+      choices: [...BUSINESS_EXPENSE_LINES],
+      suggested: null,
+      blocking: true,
+    }),
     apply: (a, f) => {
-      if (f.scheduleC?.[0] && cents(a) > 0) {
-        f.scheduleC[0].expenses = { ...f.scheduleC[0].expenses, officeExpense: cents(a) };
-      }
+      const lines = parseLines(a, BUSINESS_EXPENSE_LINES);
+      if (!lines) return;
+      const b = business(f);
+      const { otherExpenses: other, ...partII } = lines;
+      b.expenses = { ...b.expenses, ...partII };
+      b.otherExpenses = other ? [{ description: 'Other business expenses', amount: other }] : [];
     },
+  },
+  {
+    id: 'business-home-office',
+    sectionId: 'wages',
+    applies: (c) => hasBusiness(c),
+    build: (c) =>
+      yesNo(
+        `Did you use part of your home regularly and only for ${businessName(c)} in 2025?`,
+        'Tidy takes the simplified home office deduction: $5 a square foot for up to 300 square feet (Schedule C line 30).',
+      ),
+    apply: (_a, f) => {
+      business(f).homeOffice = null; // the area answer sets it
+    },
+  },
+  {
+    id: 'business-home-office-area',
+    sectionId: 'wages',
+    applies: (c) => answerOf(c, 'business-home-office') === 'yes',
+    build: (c) => {
+      const p = c.prior?.scheduleC;
+      return {
+        kind: 'area',
+        prompt: 'How many square feet is that space, and your whole home?',
+        help: p?.homeOfficeBusinessSqFt ? 'Filled in from your 2024 return.' : 'Measure the space you use only for the business.',
+        choices: HOME_OFFICE_LINES,
+        suggested: null,
+        suggestedLines:
+          p?.homeOfficeBusinessSqFt && p.homeOfficeTotalSqFt
+            ? { businessSqFt: p.homeOfficeBusinessSqFt, totalSqFt: p.homeOfficeTotalSqFt }
+            : null,
+        blocking: true,
+      };
+    },
+    apply: (a, f) => {
+      const v = parseLines(a, HOME_OFFICE_LINES, 'area');
+      const biz = v?.businessSqFt ?? 0;
+      const total = v?.totalSqFt ?? 0;
+      business(f).homeOffice = biz > 0 && total >= biz ? { method: 'simplified', businessSqFt: biz, totalSqFt: total } : null;
+    },
+  },
+  {
+    id: 'business-assets',
+    sectionId: 'wages',
+    applies: (c) => hasBusiness(c),
+    build: (c) =>
+      yesNo(
+        `Did ${businessName(c)} own equipment, a vehicle or property it depreciates, or sell or scrap any in 2025?`,
+        'That needs Form 4562 or Form 4797.',
+      ),
+    apply: () => {}, // "yes" blocks (flags)
   },
   {
     id: 'business-sep',
     sectionId: 'wages',
-    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    applies: (c) => hasBusiness(c),
     build: () =>
       money(
         'How much did you contribute to a self-employed SEP, SIMPLE, or solo 401(k) plan for 2025? Enter 0 if none.',
         'Tidy caps the deduction at the 2025 statutory limit (20% of net self-employment earnings after half of SE tax, up to $70,000) on Schedule 1, line 16.',
       ),
     apply: (a, f) => {
-      if (f.scheduleC?.[0] && cents(a) > 0) f.scheduleC[0].sepContribution = cents(a);
+      if (cents(a) > 0) business(f).sepContribution = cents(a);
     },
   },
   {
     id: 'business-health-insurance',
     sectionId: 'wages',
-    applies: (c) => (c.facts.f1099Nec ?? []).length > 0 || (Boolean(c.prior?.scheduleC) && answerOf(c, 'business-active-2025') === 'yes'),
+    applies: (c) => hasBusiness(c),
     build: () =>
       money(
         'How much did you pay in 2025 for self-employed health insurance premiums under your business (for months you weren’t eligible for an employer plan)? Enter 0 if none.',
         'Reported on Form 7206 and deducted on Schedule 1, line 17, up to your net business profit after SE tax and SEP.',
       ),
     apply: (a, f) => {
-      if (f.scheduleC?.[0] && cents(a) > 0) f.scheduleC[0].healthInsurancePremiums = cents(a);
+      if (cents(a) > 0) business(f).healthInsurancePremiums = cents(a);
     },
   },
   {
-    id: 'k1-material-participation',
-    sectionId: 'wages',
-    applies: (c) =>
-      (c.facts.k1s ?? []).some((k) => (k.entityType === '1065' || k.entityType === '1120S') && k.ordinaryBusinessIncome !== 0),
+    id: 'medical-expenses',
+    sectionId: 'deductions',
+    applies: () => true,
     build: (c) => {
-      const names = (c.facts.k1s ?? [])
-        .filter((k) => (k.entityType === '1065' || k.entityType === '1120S') && k.ordinaryBusinessIncome !== 0)
-        .map((k) => k.entityName)
-        .join(', ');
-      return yesNo(
-        `Did you materially participate in the operations of ${names} during 2025 (for example, working more than 500 hours in the business)?`,
-        'Material participation makes the trade or business nonpassive on Schedule E Part II; otherwise it is a passive activity subject to Form 8582.',
-      );
+      const medicare = sumCents((c.facts.ssa1099 ?? []).map((x) => x.medicarePremiums ?? 0));
+      return {
+        kind: 'lines',
+        prompt: 'What medical and dental costs did you pay in 2025 that insurance didn’t cover? Leave the lines blank if none.',
+        help:
+          medicare > 0
+            ? 'Filled in with the Medicare premiums on your SSA-1099. Medical costs count only if you itemize, and only the part over 7.5% of your income. Leave out anything paid with pre-tax money through work.'
+            : 'They count only if you itemize, and only the part over 7.5% of your income. Leave out anything paid with pre-tax money through work.',
+        choices: medicalLines(c.facts),
+        suggested: null,
+        suggestedLines: medicare > 0 ? { premiums: medicare } : null,
+        blocking: true,
+      };
     },
     apply: (a, f) => {
-      for (const k of f.k1s ?? []) {
-        if (k.entityType === '1065' || k.entityType === '1120S') {
-          k.isMaterialParticipation = a === 'yes';
-        }
-      }
-    },
-  },
-  {
-    id: 'k1-scorp-beginning-stock-basis',
-    sectionId: 'wages',
-    applies: (c) => (c.facts.k1s ?? []).some((k) => k.entityType === '1120S' && Boolean(k.sCorpBasis)),
-    build: (c) => {
-      const scorp = (c.facts.k1s ?? []).find((k) => k.entityType === '1120S' && Boolean(k.sCorpBasis));
-      return money(
-        `What was your stock basis in ${scorp?.entityName ?? 'the S corporation'} at the beginning of 2025 (Form 7203, line 1)?`,
-        'Required on Form 7203 when an S corporation reports a loss or makes a distribution.',
-      );
-    },
-    apply: (a, f) => {
-      for (const k of f.k1s ?? []) {
-        if (k.entityType === '1120S' && k.sCorpBasis) {
-          k.sCorpBasis.beginningStockBasis = Math.max(0, cents(a));
-        }
-      }
+      const v = parseLines(a, medicalLines(f));
+      if (!v) return;
+      f.itemized.medicalExpenses = Math.max(0, v.premiums ?? 0) + Math.max(0, v.other ?? 0);
+      f.itemized.longTermCarePremiums = { taxpayer: Math.max(0, v.ltcYou ?? 0), spouse: Math.max(0, v.ltcSpouse ?? 0) };
     },
   },
   {
@@ -549,9 +805,128 @@ export const RULES: Rule[] = [
     },
   },
   {
+    id: 'foreign-tax-credit',
+    sectionId: 'investments',
+    applies: (c) => simpleForeignTaxCreditAllowed(c.facts),
+    build: (c) =>
+      yesNo(
+        `Your 1099s show ${formatUsd(foreignTaxPaid(c.facts), { cents: true })} of foreign tax. Can Tidy claim it as a credit?`,
+        'Yes for almost everyone with funds or shares: you owned them for more than 15 days around each payment, the tax was owed and not refundable, it went to a country the U.S. recognizes, and you aren’t excluding income from Puerto Rico. Tidy then claims it on Schedule 3 line 1, without Form 1116.',
+      ),
+    apply: (a, f) => {
+      f.claimForeignTaxCredit = a === 'yes';
+    },
+  },
+  {
+    id: 'tips-2025',
+    sectionId: 'wages',
+    applies: (c) => c.facts.w2s.length > 0 && c.facts.filingStatus !== 'mfs',
+    build: () =>
+      yesNo(
+        'Did you get tips in 2025, in a job where people usually get tips?',
+        'Like restaurant servers, bartenders, hair stylists and delivery drivers (the list is at IRS.gov/TippedOccupations). For 2025, up to $25,000 of tips is deductible on Schedule 1-A.',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'tips-amount',
+    sectionId: 'wages',
+    applies: (c) => answerOf(c, 'tips-2025') === 'yes',
+    build: () =>
+      money(
+        'How much in tips did your W-2s show in box 7 (social security tips)?',
+        'Count only tips customers chose to give, not automatic service charges. Tidy deducts up to $25,000, less $100 for each $1,000 of income over $150,000 ($300,000 joint).',
+      ),
+    apply: (a, f) => {
+      newDeductions(f).tips = cents(a);
+    },
+  },
+  {
+    id: 'overtime-2025',
+    sectionId: 'wages',
+    applies: (c) => c.facts.w2s.length > 0 && c.facts.filingStatus !== 'mfs',
+    build: () =>
+      yesNo(
+        'Were you paid overtime in 2025, at time-and-a-half for hours over 40 a week?',
+        'For 2025 the extra half of overtime pay required by federal law is deductible on Schedule 1-A, up to $12,500 ($25,000 joint).',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'overtime-amount',
+    sectionId: 'wages',
+    applies: (c) => answerOf(c, 'overtime-2025') === 'yes',
+    build: () =>
+      money(
+        'How much of your 2025 pay was the extra half of overtime?',
+        'Your employer may show it in box 14 of your W-2 or on a separate statement. If you only know your total overtime pay at time-and-a-half, enter a third of it. Tidy deducts it less $100 for each $1,000 of income over $150,000 ($300,000 joint).',
+      ),
+    apply: (a, f) => {
+      newDeductions(f).overtime = cents(a);
+    },
+  },
+  {
+    id: 'car-loan-2025',
+    sectionId: 'deductions',
+    applies: () => true,
+    build: () =>
+      yesNo(
+        'Did you pay interest in 2025 on a loan for a new car, SUV, pickup or motorcycle?',
+        'It counts when the vehicle is new, for personal use, had its final assembly in the U.S., and was bought after 2024 with a loan secured by it. Up to $10,000 of the interest is deductible for 2025 (Schedule 1-A). Your lender’s statement shows the interest.',
+      ),
+    apply: () => {},
+  },
+  {
+    id: 'car-loan-vin',
+    sectionId: 'deductions',
+    applies: (c) => answerOf(c, 'car-loan-2025') === 'yes',
+    build: () => vinQuestion('What is that vehicle’s identification number (VIN)?'),
+    apply: (a, f) => {
+      carLoan(f, 0).vin = a.trim().toUpperCase();
+    },
+  },
+  {
+    id: 'car-loan-interest',
+    sectionId: 'deductions',
+    applies: (c) => answerOf(c, 'car-loan-2025') === 'yes',
+    build: () =>
+      money(
+        'How much interest did you pay on that loan in 2025?',
+        'From your lender’s year-end statement. Leave out any interest you deducted on Schedule C or E. Tidy deducts up to $10,000, less $200 for each $1,000 (or part) of income over $100,000 ($200,000 joint).',
+      ),
+    apply: (a, f) => {
+      carLoan(f, 0).interest = cents(a);
+    },
+  },
+  {
+    id: 'car-loan-second',
+    sectionId: 'deductions',
+    applies: (c) => answerOf(c, 'car-loan-2025') === 'yes',
+    build: () => yesNo('Did you pay interest on a loan like that for a second new vehicle?', 'Schedule 1-A has room for two vehicles.'),
+    apply: () => {},
+  },
+  {
+    id: 'car-loan-vin-2',
+    sectionId: 'deductions',
+    applies: (c) => answerOf(c, 'car-loan-2025') === 'yes' && answerOf(c, 'car-loan-second') === 'yes',
+    build: () => vinQuestion('What is the second vehicle’s identification number (VIN)?'),
+    apply: (a, f) => {
+      carLoan(f, 1).vin = a.trim().toUpperCase();
+    },
+  },
+  {
+    id: 'car-loan-interest-2',
+    sectionId: 'deductions',
+    applies: (c) => answerOf(c, 'car-loan-2025') === 'yes' && answerOf(c, 'car-loan-second') === 'yes',
+    build: () => money('How much interest did you pay on the second vehicle’s loan in 2025?', 'From your lender’s year-end statement.'),
+    apply: (a, f) => {
+      carLoan(f, 1).interest = cents(a);
+    },
+  },
+  {
     id: 'ira-qcd',
     sectionId: 'wages',
-    applies: (c) => (c.facts.f1099R ?? []).some((r) => r.iraSepSimple && r.box2aTaxableAmount > 0 && !/^[GHQ]/.test(r.box7Codes)),
+    applies: (c) => (c.facts.f1099R ?? []).some((r) => r.iraSepSimple && reportedTaxable(r) > 0 && !/^[GHQ]/.test(r.box7Codes)),
     build: () =>
       yesNo(
         'Did any of your IRA distribution go directly from the IRA to a qualified charity (a Qualified Charitable Distribution)?',
@@ -571,8 +946,8 @@ export const RULES: Rule[] = [
     apply: (a, f) => {
       let rem = cents(a);
       for (const r of f.f1099R ?? []) {
-        if (!r.iraSepSimple || r.box2aTaxableAmount <= 0 || rem <= 0) continue;
-        const take = Math.min(rem, r.box2aTaxableAmount);
+        if (!r.iraSepSimple || reportedTaxable(r) <= 0 || rem <= 0) continue;
+        const take = Math.min(rem, reportedTaxable(r));
         r.qcdAmount = take;
         rem -= take;
       }
@@ -581,7 +956,7 @@ export const RULES: Rule[] = [
   {
     id: 'retirement-rollover',
     sectionId: 'wages',
-    applies: (c) => (c.facts.f1099R ?? []).some((r) => r.box2aTaxableAmount > 0 && !/^[GH]/.test(r.box7Codes)),
+    applies: (c) => (c.facts.f1099R ?? []).some((r) => reportedTaxable(r) > 0 && !/^[GH]/.test(r.box7Codes)),
     build: () =>
       yesNo(
         'Did you roll over any of your 2025 retirement distributions into another IRA or retirement plan within 60 days?',
@@ -601,8 +976,8 @@ export const RULES: Rule[] = [
     apply: (a, f) => {
       let rem = cents(a);
       for (const r of f.f1099R ?? []) {
-        if (r.box2aTaxableAmount <= 0 || /^[GH]/.test(r.box7Codes) || rem <= 0) continue;
-        const avail = Math.max(0, r.box2aTaxableAmount - (r.qcdAmount ?? 0));
+        if (reportedTaxable(r) <= 0 || /^[GH]/.test(r.box7Codes) || rem <= 0) continue;
+        const avail = Math.max(0, reportedTaxable(r) - (r.qcdAmount ?? 0));
         const take = Math.min(rem, avail);
         r.rolloverAmount = take;
         rem -= take;
@@ -614,7 +989,7 @@ export const RULES: Rule[] = [
     sectionId: 'state_summary',
     applies: (c) =>
       c.facts.residency.state === 'MD' &&
-      (c.facts.f1099R ?? []).some((r) => !r.iraSepSimple && r.box2aTaxableAmount > 0) &&
+      (c.facts.f1099R ?? []).some((r) => !isIraDistribution(r) && reportedTaxable(r) > 0) &&
       !(c.facts.taxpayer.dateOfBirth && c.facts.taxpayer.dateOfBirth < '1961-01-02'),
     build: () =>
       yesNo(
@@ -628,8 +1003,7 @@ export const RULES: Rule[] = [
   {
     id: 'capital-loss-carryover',
     sectionId: 'investments',
-    applies: (c) =>
-      c.prior === null && ((c.facts.f1099B ?? []).length > 0 || c.facts.f1099Div.some((x) => x.box2aCapitalGainDistributions > 0)),
+    applies: (c) => c.prior === null, // a carryover gives a deduction even with no sales in 2025
     build: () =>
       yesNo(
         'Do you have an unused capital loss carryover from your 2024 tax return?',
@@ -648,10 +1022,11 @@ export const RULES: Rule[] = [
       ),
     apply: (a, f) => {
       f.carryovers = {
+        capitalLossLongTerm: 0,
+        qbiLoss: 0,
+        reitPtpLoss: 0,
+        ...f.carryovers,
         capitalLossShortTerm: Math.abs(cents(a)),
-        capitalLossLongTerm: f.carryovers?.capitalLossLongTerm ?? 0,
-        qbiLoss: f.carryovers?.qbiLoss ?? 0,
-        reitPtpLoss: f.carryovers?.reitPtpLoss ?? 0,
       };
     },
   },
@@ -666,10 +1041,11 @@ export const RULES: Rule[] = [
       ),
     apply: (a, f) => {
       f.carryovers = {
-        capitalLossShortTerm: f.carryovers?.capitalLossShortTerm ?? 0,
+        capitalLossShortTerm: 0,
+        qbiLoss: 0,
+        reitPtpLoss: 0,
+        ...f.carryovers,
         capitalLossLongTerm: Math.abs(cents(a)),
-        qbiLoss: f.carryovers?.qbiLoss ?? 0,
-        reitPtpLoss: f.carryovers?.reitPtpLoss ?? 0,
       };
     },
   },
@@ -692,55 +1068,78 @@ export const RULES: Rule[] = [
   {
     id: 'federal-estimates',
     sectionId: 'payments',
-    applies: (c) => !hasEstimateDocs(c, 'federal_estimate'),
-    build: () =>
-      money(
-        'How much federal estimated tax did you pay for 2025? Include the January 2026 payment. Enter 0 if none.',
-        'Your IRS online account (irs.gov/account) lists every payment.',
-      ),
+    applies: () => true,
+    build: (c) => {
+      const s = suggestedWindows(c.state, 'federal_estimate');
+      return {
+        kind: 'lines',
+        prompt: 'How much federal estimated tax did you pay for 2025, and when? Leave the lines blank if you paid none.',
+        help: fromRecords(
+          s,
+          'Your IRS online account (irs.gov/account) lists every payment. When you paid matters for the underpayment penalty.',
+        ),
+        choices: FEDERAL_WINDOWS,
+        suggested: null,
+        suggestedLines: s.records > 0 ? s.lines : null,
+        blocking: true,
+      };
+    },
     apply: (a, f) => {
-      if (cents(a) > 0) f.payments.federalEstimated.push(cents(a));
+      const v = parseLines(a, FEDERAL_WINDOWS);
+      if (!v) return;
+      const by = (k: string) => v[k] ?? 0;
+      f.payments.federalEstimated = FEDERAL_WINDOWS.map((w) => by(w.value)).filter((x) => x > 0);
+      f.payments.federalEstimatedByQuarter = [by('q1'), by('q2'), by('q3'), by('q4')];
     },
   },
   {
-    id: 'state-estimates-2025',
+    id: 'state-estimates',
     sectionId: 'payments',
-    applies: (c) => c.facts.residency.state !== null && !hasEstimateDocs(c, 'state_estimate'),
-    build: (c) =>
-      money(
-        `How much ${stateName(c.facts.residency.state)} estimated tax did you pay during 2025 for 2025? Enter 0 if none.`,
-        'Usually paid in April, June and September. Your state tax account online lists them.',
-      ),
-    apply: (a, f) => {
-      if (cents(a) === 0) return;
-      f.stateReturn.estimatedPayments.push(cents(a));
-      f.itemized.stateIncomeTaxPayments.push({ label: '2025 state estimated payments', amount: cents(a) });
+    applies: (c) => c.facts.residency.state !== null,
+    build: (c) => {
+      const s = suggestedWindows(c.state, 'state_estimate', c.facts.residency.state);
+      return {
+        kind: 'lines',
+        prompt: `How much ${stateName(c.facts.residency.state)} estimated tax did you pay for 2025, and when? Leave the lines blank if you paid none.`,
+        help: fromRecords(
+          s,
+          'Your state tax account online lists them. What you paid during 2025 also counts toward your state and local tax deduction.',
+        ),
+        choices: STATE_WINDOWS,
+        suggested: null,
+        suggestedLines: s.records > 0 ? s.lines : null,
+        blocking: true,
+      };
     },
-  },
-  {
-    id: 'state-estimate-january',
-    sectionId: 'payments',
-    applies: (c) => c.facts.residency.state !== null && !hasEstimateDocs(c, 'state_estimate'),
-    build: (c) =>
-      money(
-        `How much ${stateName(c.facts.residency.state)} estimated tax for 2025 did you pay in January 2026? Enter 0 if none.`,
-        'It counts as a payment on your 2025 state return.',
-      ),
     apply: (a, f) => {
-      if (cents(a) > 0) f.stateReturn.estimatedPayments.push(cents(a));
+      const v = parseLines(a, STATE_WINDOWS);
+      if (!v) return;
+      const by = (k: string) => v[k] ?? 0;
+      f.stateReturn.estimatedPayments = STATE_WINDOWS.map((w) => by(w.value)).filter((x) => x > 0);
+      f.stateReturn.estimatedByQuarter = [by('q1'), by('q2'), by('q3'), by('q4a') + by('q4b')];
+      const paidIn2025 = by('q1') + by('q2') + by('q3') + by('q4a');
+      if (paidIn2025 > 0)
+        f.itemized.stateIncomeTaxPayments.push({ label: '2025 state estimated payments made in 2025', amount: paidIn2025 });
     },
   },
   {
     id: 'state-estimate-prior-january',
     sectionId: 'deductions',
-    applies: (c) => c.facts.residency.state !== null && !hasEstimateDocs(c, 'state_estimate'),
-    build: (c) =>
-      money(
-        `How much ${stateName(c.facts.residency.state)} estimated tax for 2024 did you pay in January 2025? Enter 0 if none.`,
-        'State tax you paid during 2025 counts toward this year’s state and local tax deduction, even if it was for 2024.',
-      ),
+    applies: (c) => c.facts.residency.state !== null,
+    build: (c) => {
+      const s = suggestedPriorYearStatePayments(c.state, c.facts.residency.state);
+      return {
+        ...money(
+          `How much ${stateName(c.facts.residency.state)} estimated tax for 2024 did you pay during 2025, usually in January? Enter 0 if none.`,
+          s === null
+            ? 'State tax you paid during 2025 counts toward this year’s state and local tax deduction, even if it was for 2024.'
+            : 'Filled in from the payment records you uploaded. State tax you paid during 2025 counts toward this year’s deduction, even if it was for 2024.',
+        ),
+        suggested: s ?? 0,
+      };
+    },
     apply: (a, f) => {
-      if (cents(a) > 0) f.itemized.stateIncomeTaxPayments.push({ label: '2024 state estimate paid in January 2025', amount: cents(a) });
+      if (cents(a) > 0) f.itemized.stateIncomeTaxPayments.push({ label: '2024 state estimate paid in 2025', amount: cents(a) });
     },
   },
   {
@@ -755,6 +1154,7 @@ export const RULES: Rule[] = [
         sumCents((f.f1099B ?? []).map((x) => x.box4FedWithheld)) +
         sumCents((f.f1099R ?? []).map((x) => x.box4FedWithheld)) +
         sumCents((f.f1099Nec ?? []).map((x) => x.box4FedWithheld)) +
+        sumCents((f.f1099G ?? []).map((x) => x.box4FedWithheld)) +
         sumCents((f.ssa1099 ?? []).map((x) => x.box6FedWithheld));
       const est = sumCents(f.payments.federalEstimated) + f.payments.federalPriorYearApplied;
       const priorTax = f.payments.priorYearFederalTax ?? null;
@@ -782,10 +1182,11 @@ export const RULES: Rule[] = [
       const mdWithheld = sumCents([
         ...f.w2s.flatMap((w) => [
           ...w.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax),
-          ...w.localLines.map((x) => x.localTax),
+          ...(isMdOnlyW2(w) ? w.localLines.map((x) => x.localTax) : []),
         ]),
         ...(f.f1099R ?? []).flatMap((r) => r.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
         ...(f.f1099Nec ?? []).flatMap((n) => n.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
+        ...(f.f1099G ?? []).flatMap((g) => g.stateLines.filter((s) => s.state === 'MD').map((s) => s.stateTax)),
       ]);
       const mdEst = sumCents(f.stateReturn.estimatedPayments) + f.stateReturn.priorYearApplied;
       const reqPrior = Math.round((priorMdTax * 110) / 100);

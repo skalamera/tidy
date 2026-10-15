@@ -1,5 +1,8 @@
+# Release build (npm run release:mac): Developer ID signature, hardened runtime and notarization, for anyone's Mac.
+# The personal build for this Mac (npm run build:mac) is electron-builder.local.yml, which extends this file.
 appId: com.tidy.desktop
 productName: Tidy
+copyright: Copyright © 2026 Tidy
 directories:
   buildResources: build
 files:
@@ -8,8 +11,11 @@ files:
   - '!tests/*'
   - '!scripts/*'
   - '!resources/*'
+  - '!docs/*'
+  - '!dist/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!vitest.config.ts'
+  - '!electron-builder*.yml'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.test.json,tsconfig.test.web.json}'
@@ -18,15 +24,27 @@ extraResources:
     to: forms
   - from: resources/law/2025/chunks.json
     to: law/2025/chunks.json
+# Locks the Electron binary down: it can't run as plain Node, NODE_OPTIONS and --inspect are ignored, and it only loads
+# the app.asar whose hash is recorded in the signed Info.plist. file:// keeps its privileges, because Tidy's window and
+# the pdf.js worker load from it.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
 mac:
   category: public.app-category.finance
   target:
     - target: dmg
       arch: [arm64]
-  notarize: false
-  # Personal build: sign ad hoc so electron-builder never uses (or prompts for) a signing identity in the login keychain.
-  identity: '-'
-  hardenedRuntime: false
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Credentials come from the environment: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID, or an App Store
+  # Connect API key (APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER), or APPLE_KEYCHAIN_PROFILE.
+  # scripts/release-preflight.mjs checks for them before the build starts.
+  notarize: true
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}
 npmRebuild: false

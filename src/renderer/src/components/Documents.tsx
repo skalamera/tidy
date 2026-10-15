@@ -1,3 +1,5 @@
+import type { AddResult } from '../../../shared/ipc';
+import { addResultText } from '../format';
 import { FilePlus2, FileText, LoaderCircle, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useState, type DragEvent } from 'react';
 import type { DocView } from '../../../core/view';
@@ -25,11 +27,9 @@ export function Documents({
   onToast: (text: string) => void;
 }) {
   const [over, setOver] = useState(false);
-  const report = (r: { added: number; duplicates: number; rejected: string[] }) => {
-    const parts = [`Added ${r.added} ${r.added === 1 ? 'document' : 'documents'}`];
-    if (r.duplicates) parts.push(`skipped ${r.duplicates} already uploaded`);
-    if (r.rejected.length) parts.push(`couldn’t add ${r.rejected.length}`);
-    onToast(parts.join(', ') + '.');
+  const report = (r: AddResult) => {
+    const text = addResultText(r);
+    if (text) onToast(text);
   };
   const drop = async (e: DragEvent) => {
     e.preventDefault();
@@ -51,7 +51,7 @@ export function Documents({
         <Upload size={28} aria-hidden />
         <strong>Drop tax documents here</strong>
         <p>Last year’s return, W-2s, 1099s, 1098s, property tax bills and payment confirmations. PDFs or photos.</p>
-        <button className="btn primary" onClick={() => void tidy().pickFiles()}>
+        <button className="btn primary" onClick={() => void tidy().pickFiles().then(report)}>
           <FilePlus2 size={16} aria-hidden /> Choose files
         </button>
       </div>

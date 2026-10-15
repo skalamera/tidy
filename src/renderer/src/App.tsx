@@ -1,3 +1,4 @@
+import { addResultText } from './format';
 import { MessageCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { Intent } from '../../core/nextAction';
@@ -6,6 +7,7 @@ import type { SectionId } from '../../shared/state';
 import { tidy } from './api';
 import { celebrate } from './celebrate';
 import { ApiKeyScreen } from './components/ApiKeyScreen';
+import { BackupDialog } from './components/BackupDialog';
 import { ChatPanel } from './components/ChatPanel';
 import { DocViewer } from './components/DocViewer';
 import { NowBar } from './components/NowBar';
@@ -21,6 +23,7 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [changingAi, setChangingAi] = useState(false);
+  const [backup, setBackup] = useState<'export' | 'restore' | null>(null);
 
   const openSection = useCallback((id: SectionId) => {
     setSectionId(id);
@@ -28,6 +31,7 @@ export default function App() {
   }, []);
   useEffect(() => tidy().onNavigate(openSection), [openSection]);
   useEffect(() => tidy().onAppError(setToast), []);
+  useEffect(() => tidy().onBackupPrompt(setBackup), []);
   useEffect(() => {
     // A call to main that failed (main has logged it). Say so instead of leaving a click that did nothing.
     const onRejection = (e: PromiseRejectionEvent) => {
@@ -81,7 +85,12 @@ export default function App() {
         break; // the key screen shows by itself while there is no key
       case 'upload':
         openSection('documents');
-        void tidy().pickFiles();
+        void tidy()
+          .pickFiles()
+          .then((r) => {
+            const text = addResultText(r);
+            if (text) setToast(text);
+          });
         break;
       case 'skip_prior_year':
         void tidy().skipPriorYear();
@@ -115,6 +124,7 @@ export default function App() {
           onOpenDoc={(id, page) => setDoc({ id, page })}
           onApproved={approved}
           onExport={() => void exportReturn()}
+          onBackup={() => setBackup('export')}
           onToast={setToast}
         />
       </main>
@@ -134,6 +144,7 @@ export default function App() {
       {openDoc && doc && (
         <DocViewer doc={openDoc} page={doc.page} onPage={(page) => setDoc({ id: doc.id, page })} onClose={() => setDoc(null)} />
       )}
+      {backup && <BackupDialog mode={backup} onClose={() => setBackup(null)} onToast={setToast} />}
       {toast && (
         <div className="toast" role="status">
           {toast}

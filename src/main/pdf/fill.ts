@@ -66,6 +66,13 @@ export function namesOnReturn(f: TaxFacts): string {
 
 export const dashedSsn = (ssn: string) => `${ssn.slice(0, 3)}-${ssn.slice(3, 5)}-${ssn.slice(5)}`;
 
+/** "123-45-6789" for a person on the return, "12-3456789" for an employer identification number. */
+export function formatTin(f: TaxFacts, tin: string): string {
+  const d = tin.replace(/\D/g, '');
+  if (d.length !== 9) return d;
+  return d === f.taxpayer.ssn || d === f.spouse?.ssn ? dashedSsn(d) : `${d.slice(0, 2)}-${d.slice(2)}`;
+}
+
 export interface Overflow {
   title: string;
   rows: { name: string; amount: Cents }[];
@@ -117,6 +124,12 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
   } else {
     text.name = namesOnReturn(f);
     text.ssn = dashedSsn(f.taxpayer.ssn);
+  }
+
+  if (id === 'sch1A') {
+    // The same loans, in the same order, as Schedule 1-A Part IV in the engine.
+    const loans = (f.newDeductions?.carLoans ?? []).filter((c) => c.interest > 0).slice(0, 2);
+    loans.forEach((c, i) => (text[`vin${i + 1}`] = c.vin));
   }
 
   if (id === 'sch1') {
@@ -223,21 +236,53 @@ export function federalValues(id: FederalFormId, f: TaxFacts, r: FederalResult):
     return { values: form8949SheetValues(f, r.form8949Sheets[0]), statements };
   }
 
-  if (id === 'f8995') {
-    // Lines 3, 7, 16, and 17 have pre-printed parentheses on Form 8995, so print positive magnitudes.
-    for (const k of ['f8995.3', 'f8995.7', 'f8995.16', 'f8995.17'] as const) {
+  /** Lines printed inside the form's own parentheses take a positive magnitude. */
+  const magnitudes = (keys: string[]) => {
+    for (const k of keys) {
+      if (!(k in map.text)) continue;
       const v = Math.abs(r.ledger.get(k));
       if (v > 0) text[k] = formAmount(v);
       else delete text[k];
     }
+  };
+
+  if (id === 'f6251') magnitudes(['f6251.2b']);
+
+  if (id === 'f8995') {
+    magnitudes(['f8995.3', 'f8995.7', 'f8995.16', 'f8995.17']);
+    r.qbi.columns.slice(0, 5).forEach((c, k) => {
+      text[`f8995.1a.${k}`] = c.name;
+      text[`f8995.1b.${k}`] = formatTin(f, c.tin);
+    });
   }
 
   if (id === 'f8995a') {
-    for (const k of ['f8995a.29', 'f8995a.40'] as const) {
-      const v = Math.abs(r.ledger.get(k));
-      if (v > 0) text[k] = formAmount(v);
-      else delete text[k];
-    }
+    magnitudes(['f8995a.29', 'f8995a.40']);
+    r.qbi.columns.slice(0, 3).forEach((c) => {
+      text[`f8995a.1a.${c.letter}`] = c.name;
+      text[`f8995a.1d.${c.letter}`] = formatTin(f, c.tin);
+      if (c.isSstb) checks.push(`f8995a.1b.${c.letter}`);
+    });
+    if (r.qbi.printed.phaseInPct) text['f8995a.24'] = r.qbi.printed.phaseInPct;
+  }
+
+  if (id === 'f8995aSchA') {
+    r.qbi.scheduleAColumns.slice(0, 3).forEach((c) => {
+      text[`f8995aSchA.1a.${c.letter}`] = c.name;
+      text[`f8995aSchA.1b.${c.letter}`] = formatTin(f, c.tin);
+    });
+    text['f8995aSchA.9'] = r.qbi.printed.scheduleALine9;
+    text['f8995aSchA.10'] = r.qbi.printed.scheduleALine10;
+  }
+
+  if (id === 'f8995aSchC') {
+    magnitudes(['f8995aSchC.1b.0', 'f8995aSchC.1b.1', 'f8995aSchC.1b.2', 'f8995aSchC.2', 'f8995aSchC.3', 'f8995aSchC.5', 'f8995aSchC.6']);
+    r.qbi.columns.slice(0, 3).forEach((c, k) => {
+      text[`f8995aSchC.name.${k}`] = c.name;
+      // "If zero or less, enter -0-": show the zero so a fully offset business doesn't look skipped.
+      if (r.ledger.has(`f8995aSchC.1c.${k}`) && r.ledger.get(`f8995aSchC.1c.${k}`) === 0) text[`f8995aSchC.1c.${k}`] = '0';
+    });
+    if (r.ledger.get('f8995aSchC.6') === 0) text['f8995aSchC.6'] = '0';
   }
 
   if (id === 'schE' || id === 'f8582' || id === 'f4562' || id === 'f7203') {

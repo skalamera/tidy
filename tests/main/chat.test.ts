@@ -56,7 +56,12 @@ describe('runChatTurn', () => {
     expect(seen).toEqual(['Your SALT deduction is capped at $40,000.']);
     expect(out.transcript).toHaveLength(4); // user, assistant(tool_use), user(tool_result), assistant(text)
     const second = requests[1].messages as { role: string; content: { type: string; tool_use_id?: string; content?: string }[] }[];
-    expect(second[2].content[0]).toEqual({ type: 'tool_result', tool_use_id: 't1', content: '{"id":"schA.5e","amount":4000000}' });
+    expect(second[2].content[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 't1',
+      content: '{"id":"schA.5e","amount":4000000}',
+      cache_control: { type: 'ephemeral' }, // the newest message carries the cache breakpoint
+    });
     expect((second[1].content[0] as { signature?: string }).signature).toBe('s1'); // thinking passed back unmodified
   });
 
@@ -130,5 +135,49 @@ describe('runChatTurn', () => {
       onText: () => {},
     });
     expect(out.text).toBe('I couldn’t answer that one. Could you ask it another way?');
+  });
+});
+
+describe('a cut-off or empty reply', () => {
+  const ask = (model: Parameters<typeof runChatTurn>[0]['model'], transcript: unknown[], userText: string) =>
+    runChatTurn({ model, transcript, userText, context: 'screen: wages', handlers: {}, onText: () => {} });
+
+  it('drops a tool call cut off by max_tokens, keeps what was said, and the next turn still works', async () => {
+    const { model, requests } = fakeClaude([
+      {
+        stop_reason: 'max_tokens',
+        content: [
+          { type: 'text', text: 'Let me check that line.' },
+          { type: 'tool_use', id: 't1', name: 'explain_line', input: {} },
+        ],
+      },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here it is.' }] },
+    ]);
+    const first = await ask(model, [], 'Why?');
+    expect(first.text).toBe('Let me check that line.\n\n(My answer got cut off. Ask me to go on.)');
+    expect((first.transcript[1] as { content: { type: string }[] }).content.map((b) => b.type)).toEqual(['text']);
+    await ask(model, first.transcript, 'Go on');
+    expect((requests[1].messages as { role: string }[]).map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+  });
+
+  it('forgets the question when nothing usable came back, on either AI', async () => {
+    const prior = [
+      { role: 'user', content: [{ type: 'text', text: 'earlier' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+    ];
+    const { model } = fakeClaude([{ stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '', signature: 's' }] }]);
+    const out = await ask(model, prior, 'x');
+    expect(out.transcript).toBe(prior);
+    expect(out.text).toBe('I couldn’t answer that one. Could you ask it another way?');
+    const { models } = fakeGemini({ streams: [[]] });
+    expect((await ask(new GeminiChatModel(models), [], 'x')).transcript).toEqual([]);
+  });
+
+  it('marks the newest message for prompt caching without saving the mark', async () => {
+    const { model, requests } = fakeClaude([{ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Hi.' }] }]);
+    const out = await ask(model, [], 'hi');
+    const sent = requests[0].messages as { content: { cache_control?: unknown }[] }[];
+    expect(sent.at(-1)!.content.at(-1)!.cache_control).toEqual({ type: 'ephemeral' });
+    expect(JSON.stringify(out.transcript)).not.toContain('cache_control');
   });
 });

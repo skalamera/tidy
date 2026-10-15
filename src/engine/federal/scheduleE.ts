@@ -1,6 +1,7 @@
 import type { TaxFacts, Owner, RentalProperty, ScheduleK1 } from '../../shared/facts';
 import { Ledger } from '../ledger';
 import { type Cents, rateToDollar, roundToDollar, sumCents, usd } from '../money';
+import type { QbiBusiness } from './form8995';
 
 /** IRS Publication 946 Table A-6: 27.5-year Residential Rental Property Straight-Line Mid-Month Year 1 rates (in ppm), indexed by month 1..12. */
 const RESIDENTIAL_275_Y1_PPM: readonly number[] = [
@@ -34,15 +35,59 @@ const NONRESIDENTIAL_39_Y1_PPM: readonly number[] = [
   1_070, // Dec (0.107%)
 ];
 
-function parsePlacedInService(s: string): { month: number; year: number } {
-  const m = s.match(/^(\d{1,2})[/-](\d{4})$/);
-  if (m) return { month: Math.max(1, Math.min(12, Number(m[1]))), year: Number(m[2]) };
-  const y = s.match(/(\d{4})/);
-  return { month: 6, year: y ? Number(y[1]) : 2024 };
+/** "MM/YYYY" (or "M-YYYY", or a full date like 06/15/2019 or 2019-06-15); null when it can't be read. */
+export function readPlacedInService(s: string): { month: number; year: number } | null {
+  const t = s.trim();
+  const my = t.match(/^(\d{1,2})[/-](\d{4})$/) ?? t.match(/^(\d{1,2})[/-]\d{1,2}[/-](\d{4})$/);
+  const ym = t.match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+  const [month, year] = my ? [Number(my[1]), Number(my[2])] : ym ? [Number(ym[2]), Number(ym[1])] : [NaN, NaN];
+  return month >= 1 && month <= 12 && year >= 1900 && year <= 2100 ? { month, year } : null;
 }
 
-/** Compute 2025 MACRS depreciation for a single rental asset. */
-export function computeAssetDepreciation(asset: NonNullable<RentalProperty['depreciableAssets']>[number]): {
+/** Unreadable dates block export (flags); this fallback only keeps the math defined meanwhile. */
+function parsePlacedInService(s: string): { month: number; year: number } {
+  return readPlacedInService(s) ?? { month: 6, year: 2024 };
+}
+
+/** IRS Publication 946 Table A-1 (half-year convention, GDS 200% / 150% declining balance), by recovery year, in ppm. */
+const TABLE_A1_PPM: Record<number, readonly number[]> = {
+  3: [333_300, 444_500, 148_100, 74_100],
+  5: [200_000, 320_000, 192_000, 115_200, 115_200, 57_600],
+  7: [142_900, 244_900, 174_900, 124_900, 89_300, 89_200, 89_300, 44_600],
+  10: [100_000, 180_000, 144_000, 115_200, 92_200, 73_700, 65_500, 65_500, 65_600, 65_500, 32_800],
+  15: [50_000, 95_000, 85_500, 77_000, 69_300, 62_300, 59_000, 59_000, 59_100, 59_000, 59_100, 59_000, 59_100, 59_000, 59_100, 29_500],
+  20: [
+    37_500, 72_190, 66_770, 61_770, 57_130, 52_850, 48_880, 45_220, 44_620, 44_610, 44_620, 44_610, 44_620, 44_610, 44_620, 44_610, 44_620,
+    44_610, 44_620, 44_610, 22_310,
+  ],
+};
+
+/** Table A-6 (27.5-year residential rental, mid-month), for recovery year `y` of property placed in service in `month`.
+ *  Years 10–27 alternate 3.637% / 3.636%, starting with 3.637% for January–June; the rate is 0 once it's used up. */
+function residentialRatePpm(month: number, y: number): number {
+  if (y === 1) return RESIDENTIAL_275_Y1_PPM[month - 1]!;
+  if (y >= 2 && y <= 9) return 36_360;
+  if (y >= 10 && y <= 27) return (y % 2 === 0) === month <= 6 ? 36_370 : 36_360;
+  if (y === 28) return month <= 6 ? [19_700, 22_730, 25_760, 28_790, 31_820, 34_850][month - 1]! : 36_360;
+  if (y === 29) return month <= 6 ? 0 : [1_520, 4_550, 7_580, 10_610, 13_640, 16_670][month - 7]!;
+  return 0;
+}
+
+/** Table A-7a (39-year nonresidential real property, mid-month). */
+function nonresidentialRatePpm(month: number, y: number): number {
+  if (y === 1) return NONRESIDENTIAL_39_Y1_PPM[month - 1]!;
+  if (y >= 2 && y <= 39) return 25_640;
+  if (y === 40) return [1_070, 3_210, 5_350, 7_490, 9_630, 11_770, 13_910, 16_050, 18_190, 20_330, 22_470, 24_610][month - 1]!;
+  return 0;
+}
+
+/** MACRS depreciation for one rental asset in `taxYear`, from the Publication 946 tables by recovery year, ending
+ *  when the recovery period is over. Personal property uses Table A-1 (the default GDS method and half-year
+ *  convention); any other period is straight line with a half year at each end. */
+export function computeAssetDepreciation(
+  asset: NonNullable<RentalProperty['depreciableAssets']>[number],
+  taxYear = 2025,
+): {
   deduction: Cents;
   in2025: boolean;
   recoveryYears: number;
@@ -51,7 +96,7 @@ export function computeAssetDepreciation(asset: NonNullable<RentalProperty['depr
 } {
   const basis = roundToDollar(asset.basis);
   const { month, year } = parsePlacedInService(asset.placedInService);
-  const in2025 = asset.placedInServiceIn2025 ?? year === 2025;
+  const in2025 = asset.placedInServiceIn2025 ?? year === taxYear;
   const recoveryYears = asset.recoveryPeriodYears ?? 27.5;
   const monthYear = `${String(month).padStart(2, '0')}/${year}`;
 
@@ -59,20 +104,18 @@ export function computeAssetDepreciation(asset: NonNullable<RentalProperty['depr
     return { deduction: roundToDollar(asset.currentYearDepreciation), in2025, recoveryYears, monthYear, basis };
   }
 
-  let deduction = 0;
-  if (recoveryYears === 27.5) {
-    const rate = in2025 ? RESIDENTIAL_275_Y1_PPM[month - 1]! : 36_360; // 3.636% full year
-    deduction = rateToDollar(basis, rate);
-  } else if (recoveryYears === 39) {
-    const rate = in2025 ? NONRESIDENTIAL_39_Y1_PPM[month - 1]! : 25_640; // 2.564% full year
-    deduction = rateToDollar(basis, rate);
-  } else {
-    // Straight-line half-year convention for 5/7/15 year improvements
-    const fullRate = Math.round(1_000_000 / recoveryYears);
-    const rate = in2025 ? Math.round(fullRate / 2) : fullRate;
-    deduction = rateToDollar(basis, rate);
+  const y = in2025 ? 1 : taxYear - year + 1; // recovery year
+  let ratePpm = 0;
+  if (y >= 1) {
+    if (recoveryYears === 27.5) ratePpm = residentialRatePpm(month, y);
+    else if (recoveryYears === 39) ratePpm = nonresidentialRatePpm(month, y);
+    else if (TABLE_A1_PPM[recoveryYears]) ratePpm = TABLE_A1_PPM[recoveryYears]![y - 1] ?? 0;
+    else {
+      const full = Math.round(1_000_000 / recoveryYears);
+      ratePpm = y === 1 ? Math.round(full / 2) : y <= recoveryYears ? full : y === Math.floor(recoveryYears) + 1 ? Math.round(full / 2) : 0;
+    }
   }
-  return { deduction, in2025, recoveryYears, monthYear, basis };
+  return { deduction: rateToDollar(basis, ratePpm), in2025, recoveryYears, monthYear, basis };
 }
 
 export interface ScheduleEOutput {
@@ -94,16 +137,14 @@ export interface ScheduleEOutput {
   /** K-1 self-employment net earnings -> Schedule SE line 2. */
   k1SelfEmploymentEarnings: { taxpayer: Cents; spouse: Cents };
   /** QBI trade/business entries from qualifying rentals and K-1s for Form 8995 / 8995-A. */
-  qbiEntries: {
-    name: string;
-    tin: string;
-    isSstb: boolean;
-    qbi: Cents;
-    w2Wages: Cents;
-    ubia: Cents;
-  }[];
+  qbiEntries: QbiBusiness[];
+  /** Part of line 41 that isn't net investment income (Form 8960 line 4b): nonpassive K-1 trade or business
+   *  income or loss and guaranteed payments. */
+  nonInvestmentIncome: Cents;
   /** Non-money text/checkbox values for PDF filling (`f1040se.pdf`, `f8582.pdf`, `f4562.pdf`, `f7203.pdf`). */
   printed: Record<string, string | boolean>;
+  /** What didn't fit on the forms Tidy fills (each one blocks export; see flags). */
+  overflow: string[];
 }
 
 /** Compute S-corporation shareholder stock and debt basis limitations (Form 7203) for the first 1120-S K-1 with basis tracking or losses/distributions. */
@@ -234,12 +275,15 @@ function computeForm7203ForK1(
  * Compute Schedule E (Part I Rentals/Royalties, Part II Partnerships/S-Corps, Part III Estates/Trusts, Part V Summary),
  * Form 4562 (Depreciation), Form 8582 (Passive Activity Loss Limitations), and Form 7203 (S-Corp Basis).
  *
- * `magiBeforePassive`: Modified AGI before passive activity income/loss, deductible SE tax, and taxable Social Security
- * (used on Form 8582 line 6 for the $100,000–$150,000 rental real estate special allowance phase-out).
+ * `magiBeforePassive`: income figured without Schedule E, taxable Social Security and the deductible part of SE tax.
+ * Schedule E's nonpassive parts are added here for Form 8582 line 6 (the $100,000–$150,000 special allowance
+ * phase-out).
  */
 export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cents): ScheduleEOutput {
   const printed: Record<string, string | boolean> = {};
+  const overflow: string[] = [];
   const rentals = f.rentals ?? [];
+  if (rentals.length > 3) overflow.push(`${rentals.length} rental or royalty properties (Schedule E has room for 3)`);
   const k1s = f.k1s ?? [];
   const qbiEntries: ScheduleEOutput['qbiEntries'] = [];
 
@@ -257,7 +301,9 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
       k1NetSection1231Gain: 0,
       k1SelfEmploymentEarnings: { taxpayer: 0, spouse: 0 },
       qbiEntries: [],
+      nonInvestmentIncome: 0,
       printed,
+      overflow,
     };
   }
 
@@ -328,7 +374,7 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
 
     let assetDepr = 0;
     for (const a of r.depreciableAssets ?? []) {
-      const comp = computeAssetDepreciation(a);
+      const comp = computeAssetDepreciation(a, f.taxYear);
       assetDepr += comp.deduction;
       if (comp.in2025) {
         needsForm4562 = true;
@@ -411,8 +457,14 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
   let k1NetSection1231Gain = 0;
   const k1SelfEmploymentEarnings = { taxpayer: 0, spouse: 0 };
 
-  const p2Rows = k1s.filter((k) => k.entityType === '1065' || k.entityType === '1120S').slice(0, 4);
-  const p3Rows = k1s.filter((k) => k.entityType === '1041').slice(0, 2);
+  const allP2 = k1s.filter((k) => k.entityType === '1065' || k.entityType === '1120S');
+  const allP3 = k1s.filter((k) => k.entityType === '1041');
+  if (allP2.length > 4) overflow.push(`${allP2.length} partnership and S corporation K-1s (Schedule E has room for 4)`);
+  if (allP3.length > 2) overflow.push(`${allP3.length} estate and trust K-1s (Schedule E has room for 2)`);
+  if (allP2.filter((k) => k.entityType === '1120S' && k.sCorpBasis).length > 1)
+    overflow.push('more than one S corporation that needs Form 7203 (Tidy fills one so far)');
+  const p2Rows = allP2.slice(0, 4);
+  const p3Rows = allP3.slice(0, 2);
 
   interface PartIIRowState {
     k1: ScheduleK1;
@@ -497,6 +549,8 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
         qbi: roundToDollar(k1.qbiAmount),
         w2Wages: roundToDollar(k1.qbiW2Wages ?? 0),
         ubia: roundToDollar(k1.qbiUbia ?? 0),
+        active: Boolean(k1.isMaterialParticipation),
+        sourceId: k1.id,
       });
     }
 
@@ -556,7 +610,13 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
       if (L1d < 0 && f.filingStatus !== 'mfs') {
         const L4 = l.set('f8582.4', Math.min(Math.abs(L1d), Math.abs(L3)), 'Smaller of line 1d loss or line 3 loss');
         const L5 = l.set('f8582.5', usd(150_000), 'Phase-out ceiling ($150,000)');
-        const L6 = l.set('f8582.6', Math.max(0, magiBeforePassive), 'Modified adjusted gross income');
+        // Line 6: income figured without any passive activity (8582 instructions), so Schedule E's nonpassive
+        // parts count: royalties, K-1 businesses you materially participate in, and estate or trust income.
+        const nonpassiveScheduleE =
+          sumCents(rentals.slice(0, 3).map((r, i) => (r.propertyType === 6 ? rentalTentativeNet[i]! : 0))) +
+          sumCents(p2States.map((st) => st.nonpassiveIncome - st.nonpassiveLoss - (st.k1.isMaterialParticipation ? st.sec179 : 0))) +
+          sumCents(p3Rows.map((k) => roundToDollar(k.ordinaryBusinessIncome) + roundToDollar(k.trustOtherIncome ?? 0)));
+        const L6 = l.set('f8582.6', Math.max(0, magiBeforePassive + nonpassiveScheduleE), 'Modified adjusted gross income');
         if (L6 < L5) {
           const L7 = l.set('f8582.7', L5 - L6, 'Line 5 minus line 6');
           const L8 = l.set('f8582.8', Math.min(usd(25_000), rateToDollar(L7, 500_000)), '50% of line 7, max $25,000');
@@ -590,6 +650,8 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
       });
 
       // Populate Form 8582 Part IV, V, VI, VII, VIII printed rows for PDF
+      if (activeRentalActs.length > 5 || otherPassiveActs.length > 5 || lossActs.length > 5)
+        overflow.push('more than 5 passive activities of one kind (the Form 8582 worksheets have room for 5)');
       activeRentalActs.slice(0, 5).forEach((a, i) => {
         const r = i + 1;
         printed[`f8582.p4.r${r}.name`] = a.name;
@@ -663,6 +725,8 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
           qbi: qbiNet,
           w2Wages: 0,
           ubia: sumCents((r.depreciableAssets ?? []).map((a) => roundToDollar(a.basis))),
+          active: false,
+          sourceId: r.id,
         });
       }
     }
@@ -787,7 +851,11 @@ export function computeScheduleE(f: TaxFacts, l: Ledger, magiBeforePassive: Cent
     k1NetSection1231Gain,
     k1SelfEmploymentEarnings,
     qbiEntries,
+    nonInvestmentIncome: sumCents(
+      p2States.map((st) => st.nonpassiveIncome - st.nonpassiveLoss - (st.k1.isMaterialParticipation ? st.sec179 : 0)),
+    ),
     printed,
+    overflow,
   };
 }
 
@@ -805,7 +873,7 @@ export function ownerScheduleEIncome(f: TaxFacts, out: ScheduleEOutput): { taxpa
   }
   for (const r of rentals) {
     const exp = sumCents(Object.values(r.expenses).filter((v): v is Cents => typeof v === 'number'));
-    const depr = sumCents((r.depreciableAssets ?? []).map((a) => computeAssetDepreciation(a).deduction));
+    const depr = sumCents((r.depreciableAssets ?? []).map((a) => computeAssetDepreciation(a, f.taxYear).deduction));
     res[r.owner] += roundToDollar(r.rentsReceived) + roundToDollar(r.royaltiesReceived ?? 0) - exp - depr;
   }
   for (const k of k1s) {

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AiProvider } from '../../shared/ai';
 import type { DocumentRecord, Extraction } from '../../shared/state';
-import { sameIssuer } from '../../core/expected';
 import { reconcile } from '../../core/reconcile';
 import type { ReturnStore } from '../store';
 import type { LlmClient, Source } from '../ai/llm';
@@ -29,6 +28,9 @@ export interface IngestDeps {
   newId: () => string;
 }
 
+/** A file Tidy won't add, with the reason as a sentence for the user. */
+export class RejectedFile extends Error {}
+
 export type MimeType = DocumentRecord['mimeType'];
 
 export function mimeFromName(fileName: string): MimeType | null {
@@ -53,7 +55,7 @@ function toSource(mime: MimeType, bytes: Buffer): Source {
 /** Store the encrypted file and queue it. Returns the existing id if the same file was added before. */
 export async function addFile(deps: IngestDeps, fileName: string, bytes: Buffer): Promise<{ id: string; duplicate: boolean }> {
   const mime = mimeFromName(fileName);
-  if (!mime) throw new Error(`${fileName}: Tidy reads PDF, PNG, JPG and CSV files.`);
+  if (!mime) throw new RejectedFile(`Tidy can’t read ${fileName}. It reads PDFs, photos (JPG, PNG or HEIC) and CSV files.`);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const existing = deps.store.get().documents.find((d) => d.sha256 === sha256);
   if (existing) return { id: existing.id, duplicate: true };
@@ -83,20 +85,22 @@ export async function addFile(deps: IngestDeps, fileName: string, bytes: Buffer)
 
 /** Classify → extract each part → verify every amount against the page text → save. Never throws. */
 export async function processDocument(deps: IngestDeps, id: string): Promise<void> {
+  // The user can remove a document while it's being read: then every later step quietly does nothing.
   const setDoc = (patch: Partial<DocumentRecord>) =>
     deps.store.update((d) => {
-      Object.assign(
-        d.documents.find((x) => x.id === id)!,
-        patch,
-      );
+      const doc = d.documents.find((x) => x.id === id);
+      if (!doc) return;
+      Object.assign(doc, patch);
       reconcile(d);
     });
   try {
     await setDoc({ status: 'reading', error: null });
-    const rec = deps.store.get().documents.find((x) => x.id === id)!;
+    const rec = deps.store.get().documents.find((x) => x.id === id);
+    if (!rec) return;
     const bytes = await deps.store.getDocument(id);
     const isPdf = rec.mimeType === 'application/pdf';
-    const texts = isPdf ? await deps.pdf.pageTexts(bytes) : null;
+    // A PDF's text layer, or a CSV's own text, is what every amount read from it is checked against.
+    const texts = isPdf ? await deps.pdf.pageTexts(bytes) : rec.mimeType === 'text/csv' ? [bytes.toString('utf8')] : null;
     const classification = await classifyDocument(deps.llm, toSource(rec.mimeType, bytes), rec.fileName);
     const plan = extractionPlan(classification);
     if (plan.length === 0) {
@@ -111,10 +115,11 @@ export async function processDocument(deps: IngestDeps, id: string): Promise<voi
       const partTexts = texts ? texts.slice(first - 1, last) : null;
       const x = await extractForm(deps.llm, step.form, toSource(rec.mimeType, partBytes), first);
       extractions.push(x);
-      for (const [k, v] of Object.entries(checkAllAmounts(x.data, partTexts))) fieldChecks[`${i}:${k}`] = v;
+      for (const [k, v] of Object.entries(checkAllAmounts(x.data, partTexts, x.form))) fieldChecks[`${i}:${k}`] = v;
     }
     await deps.store.update((d) => {
-      const doc = d.documents.find((x) => x.id === id)!;
+      const doc = d.documents.find((x) => x.id === id);
+      if (!doc) return; // removed while it was being read
       Object.assign(doc, {
         status: 'done',
         classification,
@@ -123,20 +128,7 @@ export async function processDocument(deps: IngestDeps, id: string): Promise<voi
         fieldChecks,
         hasTextLayer: texts !== null,
       });
-      if (classification.isCorrected && classification.issuerName) {
-        for (const other of d.documents) {
-          if (
-            other.id !== id &&
-            !other.supersededBy &&
-            other.docType === doc.docType &&
-            other.classification?.issuerName &&
-            sameIssuer(other.classification.issuerName, classification.issuerName)
-          ) {
-            other.supersededBy = id;
-          }
-        }
-      }
-      reconcile(d); // also rebuilds the documents to expect, from a 2024 return only
+      reconcile(d); // also works out which forms corrections replace, and the documents to expect
     });
   } catch (e) {
     const message =

@@ -23,7 +23,7 @@ Rules:
 ${DATA_ONLY}`;
 
 export const FORM_PROMPTS: Record<ExtractForm, string> = {
-  w2: 'This is Form W-2 (Wage and Tax Statement). Extract boxes 1–6, every box 12 code and amount, and every state row (boxes 15–17) and local row (boxes 18–20). If the file repeats the same W-2 as Copy B, C and 2, read only one copy.',
+  w2: 'This is Form W-2 (Wage and Tax Statement). Extract boxes 1–6, every box 12 code and amount, every box 14 line with its label and amount, and every state row (boxes 15–17) and local row (boxes 18–20). If the file repeats the same W-2 as Copy B, C and 2, read only one copy.',
   f1099_int:
     'This is Form 1099-INT (Interest Income), possibly one section of a brokerage composite statement. Use the account totals, not individual securities.',
   f1099_div:
@@ -39,6 +39,14 @@ export const FORM_PROMPTS: Record<ExtractForm, string> = {
   k1: 'This is Schedule K-1 (Form 1065 Partnership, Form 1120-S S Corporation, or Form 1041 Estate/Trust). Extract the entityType ("1065", "1120S", or "1041"), entityName, entityEin, recipientName, and the Part III income, loss, deduction, distribution, self-employment, and Section 199A QBI boxes.',
   f1098:
     'This is Form 1098 (Mortgage Interest Statement). Box 1 is mortgage interest received from the borrower. Real estate tax paid from escrow may be in box 10 or in an escrow summary.',
+  f1099_g:
+    'This is Form 1099-G (Certain Government Payments). Extract box 1 (unemployment compensation), box 2 (state or local income tax refunds, credits, or offsets), box 3 (the tax year of the box 2 amount), box 4 (federal income tax withheld) and each state row (box 10a state and box 11 state income tax withheld).',
+  f1099_misc:
+    'This is Form 1099-MISC (Miscellaneous Information), possibly one section of a brokerage composite statement. Extract boxes 1 (rents), 2 (royalties), 3 (other income), 4 (federal income tax withheld), 8 (substitute payments in lieu of dividends or interest) and 10 (gross proceeds paid to an attorney). Many composites print this section with every box blank or 0.00: then report them as printed.',
+  f1099_oid:
+    'This is Form 1099-OID (Original Issue Discount), possibly one section of a brokerage composite statement. Use the account totals. Extract boxes 1, 2, 4, 5, 6, 8 and 11.',
+  prior_state:
+    'This is a previously filed state income tax return (for Maryland, Form 502). Extract the tax year, the state, the Maryland county and 4-digit political subdivision code from page 1, line 34 (total Maryland and local tax), the overpayment applied to next year’s estimated tax, and any balance due.',
   payment:
     'This is a payment record: a property tax bill or receipt, a charity donation acknowledgment, or a confirmation of an estimated tax payment. Report the amount actually PAID and the date it was paid.',
   prior_year:
@@ -48,5 +56,6 @@ export const FORM_PROMPTS: Record<ExtractForm, string> = {
     'passiveActivityCarryovers: per-activity unallowed passive losses carried forward to the next year from Form 8582 Worksheets 5, 6, and 7. ' +
     'mdDecoupling: Maryland Form 500DM decoupling modifications (federalDepreciation, mdDepreciationWithoutDecoupling, pteDecouplingModification) if present. ' +
     'carryovers: read the Capital Loss Carryover Worksheet, Form 8582, Form 8995 / 8995-A (qbiLoss, reitPtpLoss), Form 8801, Form 1116, Form 4952 and charitable carryover statements. ' +
-    'appliedToNextYear is Form 1040 line 36. stateTotalTax is Maryland Form 502 line 34. stateBalanceDue is the amount owed on the state return.',
+    'appliedToNextYear is Form 1040 line 36. stateTotalTax is Maryland Form 502 line 34. stateBalanceDue is the amount owed on the state return. stateRefund is the state overpayment refunded (Form 502 line 50). ' +
+    'itemized: Schedule A lines 5a (whether the general sales tax box is checked), 5d, 5e and 17 if the return itemized, otherwise null. ageOrBlindBoxes: how many of the four age and blindness boxes on Form 1040 page 1 are checked. amt: the alternative minimum tax on Schedule 2 line 1 or Form 6251 line 11.',
 };

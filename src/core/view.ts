@@ -1,16 +1,18 @@
-import { formatUsd, type Cents } from '../engine/money';
+import { formatUsd, sumCents, type Cents } from '../engine/money';
 import { computeFederal, type FederalResult } from '../engine/federal/form1040';
 import type { Ledger } from '../engine/ledger';
 import { computeStateReturn, stateTotals, type StateResult } from '../engine/state';
 import type { AiProvider } from '../shared/ai';
-import { maskSsn } from '../shared/answers';
+import { dateText, maskSsn } from '../shared/answers';
 import type { Evidence, TaxFacts } from '../shared/facts';
 import { NO_CHAT, type ChatView } from '../shared/chat';
-import type { AppState, DocumentRecord, Flag, Proposal, Question, SectionId } from '../shared/state';
-import { deriveFacts, latestPriorYear } from './deriveFacts';
+import type { AppState, ChangeText, DocumentRecord, Flag, Override, Proposal, Question, SectionId } from '../shared/state';
+import { deriveFactsChecked, latestPriorYear } from './deriveFacts';
 import { isReceived, missingExpected } from './expected';
 import { deriveFlags } from './flags';
 import { nextAction, type NextAction } from './nextAction';
+import { changeText, overrideProblem } from './overrides';
+import { FEDERAL_WINDOWS } from './estimates';
 import { STATUS_LABEL } from './questionRules';
 import { SECTIONS, sectionStates, type SectionState } from './sections';
 
@@ -42,6 +44,23 @@ export interface DocView {
   error: string | null;
   superseded: boolean;
 }
+/** A suggestion from chat, with its change worded by code. */
+export interface ProposalView extends Proposal {
+  change: ChangeText;
+  /** False when a pending suggestion no longer fits the return, so it can't be accepted. */
+  fits: boolean;
+  /** The change it made, while that change is in effect (for Undo). */
+  overrideId: string | null;
+}
+/** A change the user accepted, listed on its step with an Undo button. */
+export interface OverrideView {
+  id: string;
+  sectionId: SectionId;
+  change: ChangeText;
+  reason: string;
+  /** False when Tidy set it aside because it no longer fits the return. */
+  applied: boolean;
+}
 export interface AppView {
   now: NextAction;
   sections: SectionState[];
@@ -61,7 +80,9 @@ export interface AppView {
     state: { code: 'MD'; totalTax: Cents; refund: Cents; owed: Cents } | null;
   };
   /** Suggestions made in the open chat, in any state, so its cards show how each one ended. */
-  proposals: Proposal[];
+  proposals: ProposalView[];
+  /** Changes the user accepted from chat. */
+  overrides: OverrideView[];
   chat: ChatView;
   /** The AI that reads documents and answers chat; null until the user connects one. */
   aiProvider: AiProvider | null;
@@ -83,6 +104,9 @@ const KIND: Record<string, string> = {
   k1_1120s: 'Schedule K-1 (1120-S)',
   k1_1041: 'Schedule K-1 (1041)',
   f1099_composite: 'Brokerage 1099',
+  f1099_misc: '1099-MISC',
+  f1099_g: '1099-G',
+  prior_year_state_return: 'Last year’s state return',
   f1098: 'Mortgage interest (1098)',
   property_tax_bill: 'Property tax',
   charity_receipt: 'Donation receipt',
@@ -98,6 +122,7 @@ const FORM_NAME: Record<string, string> = {
   f1099_b: '1099-B',
   k1: 'K-1',
   f1098: '1098',
+  f1099_g: '1099-G',
 };
 
 const FORM_NAME_BY_ID: Record<string, string> = {
@@ -184,7 +209,8 @@ function stateCards(s: StateResult | null): Card[] {
         fromLedger(l, 'md502.34', 'Total tax'),
         fromLedger(l, 'md502.46', 'Total payments'),
         ...(l.get('md502.51') > 0 ? [fromLedger(l, 'md502.51', 'Underpayment interest (Form 502UP)')] : []),
-        s.md.refund > 0 ? fromLedger(l, 'md502.48', 'Refund') : fromLedger(l, 'md502.52', 'Amount you owe'),
+        ...(l.get('md502.49') > 0 ? [fromLedger(l, 'md502.49', 'Applied to next year’s estimated tax')] : []),
+        s.md.refund > 0 ? fromLedger(l, 'md502.50', 'Refund') : fromLedger(l, 'md502.52', 'Amount you owe'),
       ],
     },
   ];
@@ -200,6 +226,7 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
       rows: [
         text('Name', `${f.taxpayer.firstName} ${f.taxpayer.lastName}`.trim() || '—'),
         text('Social Security number', maskSsn(f.taxpayer.ssn)),
+        text('Date of birth', f.taxpayer.dateOfBirth ? dateText(f.taxpayer.dateOfBirth) : '—'),
       ],
     },
     ...(f.spouse
@@ -208,7 +235,11 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
             id: 'spouse',
             title: 'Spouse',
             subtitle: null,
-            rows: [text('Name', `${f.spouse.firstName} ${f.spouse.lastName}`), text('Social Security number', maskSsn(f.spouse.ssn))],
+            rows: [
+              text('Name', `${f.spouse.firstName} ${f.spouse.lastName}`),
+              text('Social Security number', maskSsn(f.spouse.ssn)),
+              text('Date of birth', f.spouse.dateOfBirth ? dateText(f.spouse.dateOfBirth) : '—'),
+            ],
           },
         ]
       : []),
@@ -313,6 +344,36 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
           : []),
       ],
     })),
+    ...(f.f1099G ?? []).map((g) => ({
+      id: g.id,
+      title: g.payerName,
+      subtitle: `${g.owner === 'spouse' ? 'Spouse’s' : 'Your'} 1099-G`,
+      rows: [
+        ...(g.box1Unemployment !== 0
+          ? [money('Unemployment compensation (box 1)', g.box1Unemployment, { source: g.evidence.box1Unemployment ?? null })]
+          : []),
+        ...(g.box2StateRefund !== 0
+          ? [
+              money(`State or local tax refund${g.box3TaxYear ? ` for ${g.box3TaxYear}` : ''} (box 2)`, g.box2StateRefund, {
+                source: g.evidence.box2StateRefund ?? null,
+              }),
+            ]
+          : []),
+        ...(g.box4FedWithheld > 0
+          ? [money('Federal tax withheld (box 4)', g.box4FedWithheld, { source: g.evidence.box4FedWithheld ?? null })]
+          : []),
+      ],
+    })),
+    ...(r.ledger.get('sch1.1') > 0
+      ? [
+          {
+            id: 'state-refund',
+            title: 'Taxable state refund',
+            subtitle: 'Schedule 1, line 1',
+            rows: [fromLedger(r.ledger, 'sch1.1', 'Taxable part of your 2024 state refund')],
+          },
+        ]
+      : []),
     ...(r.business.needsScheduleC
       ? [
           {
@@ -354,6 +415,20 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
                 : []),
             ],
           },
+          ...(f.rentals ?? []).slice(0, 3).map((p, i) => {
+            const col = 'ABC'[i];
+            return {
+              id: `rental-${p.id}`,
+              title: p.address.trim() || 'Rental property',
+              subtitle: `${p.owner === 'spouse' ? 'Spouse’s' : 'Your'} ${p.propertyType === 6 ? 'royalties' : 'rental'} · Schedule E column ${col}`,
+              rows: [
+                ...(p.propertyType === 6 ? [line(r, `schE.4.${col}`, 'Royalties received')] : [line(r, `schE.3.${col}`, 'Rents received')]),
+                line(r, `schE.18.${col}`, 'Depreciation'),
+                line(r, `schE.20.${col}`, 'Total expenses, including depreciation'),
+                line(r, `schE.21.${col}`, 'Income or (loss) before passive loss limits'),
+              ],
+            };
+          }),
         ]
       : []),
     {
@@ -475,7 +550,19 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
       subtitle: null,
       rows: [
         line(r, 'f1040.25d', 'Withheld from paychecks and 1099s'),
-        ...f.payments.federalEstimated.map((c, i) => money(`Estimated payment ${i + 1}`, c)),
+        ...(f.payments.federalEstimatedByQuarter
+          ? FEDERAL_WINDOWS.map(
+              (w, i) =>
+                [
+                  w.label,
+                  i < 4
+                    ? f.payments.federalEstimatedByQuarter![i]
+                    : sumCents(f.payments.federalEstimated) - sumCents(f.payments.federalEstimatedByQuarter!),
+                ] as const,
+            )
+              .filter(([, c]) => c > 0)
+              .map(([label, c]) => money(`Estimated tax ${label.charAt(0).toLowerCase()}${label.slice(1)}`, c))
+          : f.payments.federalEstimated.map((c, i) => money(`Estimated payment ${i + 1}`, c))),
         money('Applied from your 2024 refund', f.payments.federalPriorYearApplied),
         money('Paid with extension', f.payments.federalExtensionPayment),
         line(r, 'f1040.33', 'Total payments'),
@@ -501,7 +588,8 @@ function details(state: AppState, f: TaxFacts, r: FederalResult, s: StateResult 
         line(r, 'f1040.24', 'Total tax'),
         line(r, 'f1040.33', 'Total payments'),
         ...(r.ledger.get('f1040.38') > 0 ? [line(r, 'f1040.38', 'Estimated tax penalty (Form 2210)')] : []),
-        r.refund > 0 ? line(r, 'f1040.34', 'Refund') : line(r, 'f1040.37', 'Amount you owe'),
+        ...(r.appliedToNextYear > 0 ? [line(r, 'f1040.36', `Applied to your ${f.taxYear + 1} estimated tax`)] : []),
+        r.refund > 0 ? line(r, 'f1040.35a', 'Refund') : line(r, 'f1040.37', 'Amount you owe'),
       ],
     },
   ];
@@ -556,10 +644,34 @@ const docViews = (state: AppState): DocView[] =>
     superseded: d.supersededBy !== null,
   }));
 
-const chatProposals = (state: AppState, chat: ChatView): Proposal[] => {
+const UNKNOWN_CHANGE: ChangeText = { label: 'Suggested change', before: '', after: '' };
+
+/** Suggestions in the open chat. Pending ones are worded from the facts as they are now; `facts` is null when the
+ *  return couldn't be worked out, and then nothing can be accepted. */
+function proposalViews(state: AppState, chat: ChatView, facts: TaxFacts | null): ProposalView[] {
   const shown = new Set(chat.messages.flatMap((m) => m.proposalIds));
-  return state.proposals.filter((p) => shown.has(p.id));
-};
+  return state.proposals
+    .filter((p) => shown.has(p.id))
+    .map((p) => {
+      const pending = p.status === 'pending';
+      const fits = pending && facts !== null && overrideProblem(facts, p.path, p.value) === null;
+      const change = fits && facts ? changeText(facts, p.path, p.value) : (p.change ?? UNKNOWN_CHANGE);
+      const overrideId = p.status === 'accepted' ? (state.overrides.find((o) => o.proposalId === p.id)?.id ?? null) : null;
+      return { ...p, change, fits, overrideId };
+    });
+}
+
+/** `bare` is the facts without any change, to word the changes older versions of Tidy saved without their words. */
+function overrideViews(state: AppState, skipped: readonly Override[], bare: () => TaxFacts): OverrideView[] {
+  const setAside = new Set(skipped.map((o) => o.id));
+  return state.overrides.map((o) => ({
+    id: o.id,
+    sectionId: o.sectionId ?? 'federal_summary',
+    change: o.change ?? changeText(bare(), o.path, o.value),
+    reason: o.reason,
+    applied: !setAside.has(o.id),
+  }));
+}
 
 /** What the screen shows when working out the return throws (a bug). Everything that doesn't need the math keeps
  *  working, so the user can undo what they just did; no step can be approved and nothing can be printed. */
@@ -588,7 +700,14 @@ export function problemView(state: AppState, ctx: ViewContext): AppView {
     flags: [],
     documents: docViews(state),
     summary: { agi: 0, taxableIncome: 0, totalTax: 0, payments: 0, refund: 0, owed: 0, itemizing: false, state: null },
-    proposals: chatProposals(state, chat),
+    proposals: proposalViews(state, chat, null),
+    overrides: state.overrides.map((o) => ({
+      id: o.id,
+      sectionId: o.sectionId ?? 'federal_summary',
+      change: o.change ?? UNKNOWN_CHANGE,
+      reason: o.reason,
+      applied: true,
+    })),
     chat,
     aiProvider: ctx.aiProvider,
     canExport: false,
@@ -598,11 +717,24 @@ export function problemView(state: AppState, ctx: ViewContext): AppView {
 
 /** Everything the renderer draws, computed in main from the stored state. Pure. */
 export function buildView(state: AppState, ctx: ViewContext): AppView {
-  const facts = deriveFacts(state);
+  const checked = deriveFactsChecked(state);
+  try {
+    return viewOf(state, ctx, checked.facts, checked.skipped);
+  } catch (e) {
+    // An accepted change the math can't handle must not pause everything: work the return out without the changes
+    // (each one then shows as set aside, with Undo). Without changes in effect, the error is a real bug.
+    if (checked.skipped.length === state.overrides.length) throw e;
+    const bare = deriveFactsChecked(state, { overrides: false });
+    return viewOf(state, ctx, bare.facts, bare.skipped);
+  }
+}
+
+function viewOf(state: AppState, ctx: ViewContext, facts: TaxFacts, skipped: Override[]): AppView {
   const result = computeFederal(facts);
   const stateResult = computeStateReturn(facts, result);
   const sections = sectionStates(state, facts, result);
-  const flags = deriveFlags(state, facts, result);
+  const overrides = overrideViews(state, skipped, () => deriveFactsChecked(state, { overrides: false }).facts);
+  const flags = deriveFlags(state, facts, result, overrides);
   const busyDocs = state.documents.filter((d) => d.status === 'queued' || d.status === 'reading').length;
   const now = nextAction({
     welcomed: state.onboarding.welcomed,
@@ -612,6 +744,7 @@ export function buildView(state: AppState, ctx: ViewContext): AppView {
     busyDocs,
     sections,
     missingDocs: missingExpected(state).length,
+    blockers: flags.filter((x) => x.severity === 'blocker').map((x) => ({ sectionId: x.sectionId, title: x.title })),
   });
   return {
     now,
@@ -638,7 +771,8 @@ export function buildView(state: AppState, ctx: ViewContext): AppView {
           }
         : null,
     },
-    proposals: chatProposals(state, ctx.chat ?? NO_CHAT),
+    proposals: proposalViews(state, ctx.chat ?? NO_CHAT, facts),
+    overrides,
     chat: ctx.chat ?? NO_CHAT,
     aiProvider: ctx.aiProvider,
     canExport: sections.every((s) => s.id === 'file' || s.status === 'approved') && !flags.some((x) => x.severity === 'blocker'),

@@ -1,5 +1,5 @@
 import { localDay } from '../../core/chatSearch';
-import { addressText, maskSsn, parseAddress, parseName } from '../../shared/answers';
+import { addressText, dateText, maskSsn, parseAddress, parseLines, parseName } from '../../shared/answers';
 import type { Question, SectionStatus } from '../../shared/state';
 import { usdExact } from './format';
 
@@ -35,6 +35,7 @@ export const timeLabel = (iso: string): string => new Date(iso).toLocaleTimeStri
 export function answerText(q: Question): string {
   if (q.answer === null) return '';
   if (q.kind === 'ssn') return maskSsn(q.answer);
+  if (q.kind === 'date') return dateText(q.answer);
   if (q.kind === 'name') {
     const n = parseName(q.answer);
     return n ? `${n.first} ${n.last}` : '';
@@ -45,5 +46,13 @@ export function answerText(q: Question): string {
   }
   if (q.kind === 'yes_no' || (q.kind === 'confirm_amount' && q.answer === 'yes')) return q.answer === 'yes' ? 'Yes' : 'No';
   if (q.kind === 'money' || q.kind === 'confirm_amount') return usdExact(Number.parseInt(q.answer, 10));
+  if (q.kind === 'lines') {
+    const v = parseLines(q.answer);
+    return v ? `${usdExact(Object.values(v).reduce((a, b) => a + b, 0))} total` : '';
+  }
+  if (q.kind === 'counts' || q.kind === 'area') {
+    const v = parseLines(q.answer, null, q.kind);
+    return v ? (q.choices ?? []).map((c) => `${c.label}: ${v[c.value] ?? 0}`).join(', ') : '';
+  }
   return q.choices?.find((c) => c.value === q.answer)?.label ?? q.answer;
 }

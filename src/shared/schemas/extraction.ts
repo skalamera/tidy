@@ -19,6 +19,7 @@ export const DOC_TYPES = [
   'f1099_r',
   'f1099_misc',
   'f1099_nec',
+  'f1099_g',
   'ssa_1099',
   'k1_1065',
   'k1_1120s',
@@ -173,6 +174,9 @@ export const Ssa1099Extraction = z.object({
   box4BenefitsRepaid: Amount.describe('Box 4: Benefits repaid to SSA in 2025.'),
   box5NetBenefits: Amount.describe('Box 5: Net benefits for 2025 (box 3 minus box 4).'),
   box6FedWithheld: Amount.describe('Box 6: Voluntary federal income tax withheld.'),
+  medicarePremiums: Amount.optional().describe(
+    'From "Description of Amount in Box 3": the total of the Medicare Part B, Part C and Part D premiums deducted from the benefits. null if none are listed.',
+  ),
 });
 export type Ssa1099ExtractionT = z.infer<typeof Ssa1099Extraction>;
 
@@ -232,6 +236,59 @@ export const K1Extraction = z.object({
 });
 export type K1ExtractionT = z.infer<typeof K1Extraction>;
 
+export const F1099GExtraction = z.object({
+  payerName: z.string(),
+  recipientName: z.string(),
+  recipientSsnLast4: z.string().nullable(),
+  box1Unemployment: Amount.describe('Box 1: unemployment compensation.'),
+  box2StateRefund: Amount.describe('Box 2: state or local income tax refunds, credits, or offsets.'),
+  box3TaxYear: z.number().int().nullable().describe('Box 3: the tax year of the box 2 refund, e.g. 2024.'),
+  box4FedWithheld: Amount,
+  otherBoxes: Amount.optional().describe(
+    'The total of boxes 5, 6, 7 and 9 (RTAA payments, taxable grants, agriculture payments, market gain). null if all are blank.',
+  ),
+  stateLines: z.array(z.object({ state: z.string().nullable(), stateTax: Amount.describe('Box 11: state income tax withheld.') })),
+});
+export type F1099GExtractionT = z.infer<typeof F1099GExtraction>;
+
+export const F1099MiscExtraction = z.object({
+  payerName: z.string(),
+  recipientName: z.string(),
+  box1Rents: Amount,
+  box2Royalties: Amount,
+  box3OtherIncome: Amount,
+  box4FedWithheld: Amount,
+  box8SubstitutePayments: Amount.describe('Box 8: substitute payments in lieu of dividends or interest.'),
+  box10GrossProceedsToAttorney: Amount,
+});
+export type F1099MiscExtractionT = z.infer<typeof F1099MiscExtraction>;
+
+export const F1099OidExtraction = z.object({
+  payerName: z.string(),
+  recipientName: z.string(),
+  box1OriginalIssueDiscount: Amount,
+  box2OtherPeriodicInterest: Amount,
+  box4FedWithheld: Amount,
+  box5MarketDiscount: Amount,
+  box6AcquisitionPremium: Amount,
+  box8OidOnTreasury: Amount.describe('Box 8: original issue discount on U.S. Treasury obligations.'),
+  box11TaxExemptOid: Amount.describe('Box 11: tax-exempt OID.'),
+});
+export type F1099OidExtractionT = z.infer<typeof F1099OidExtraction>;
+
+/** Last year's state return uploaded on its own (Maryland Form 502). */
+export const PriorStateExtraction = z.object({
+  taxYear: z.number().int(),
+  state: z.string().nullable(),
+  mdCounty: z.string().nullable(),
+  mdSubdivisionCode: z.string().nullable().describe('Maryland Form 502 page 1: the 4-digit political subdivision code, e.g. "1609".'),
+  stateTotalTax: Amount.describe('Maryland Form 502 line 34: total Maryland and local tax.'),
+  stateBalanceDue: Amount.describe('Amount owed on the state return.'),
+  stateAppliedToNextYear: Amount.describe('Maryland overpayment applied to next year’s estimated tax.'),
+  stateRefund: Amount.optional().describe('Overpayment refunded (Maryland Form 502 line 50). null if none.'),
+});
+export type PriorStateExtractionT = z.infer<typeof PriorStateExtraction>;
+
 export const PaymentExtraction = z.object({
   kind: z.enum(['property_tax', 'charity_cash', 'charity_noncash', 'federal_estimate', 'state_estimate', 'other']),
   payee: z.string(),
@@ -263,6 +320,25 @@ export const PriorYearExtraction = z.object({
   stateTotalTax: Amount.optional().describe('Maryland Form 502 line 34: total Maryland and local tax.'),
   stateBalanceDue: Amount.describe('Amount owed on the state return (paid in the following year).'),
   stateAppliedToNextYear: Amount.describe('Maryland overpayment applied to next year’s estimated tax (Form 502 line 49).'),
+  stateRefund: Amount.optional().describe('The state return’s overpayment refunded (Maryland Form 502 line 50). null if none.'),
+  itemized: z
+    .object({
+      salesTaxElected: z.boolean().describe('Schedule A line 5a: the box for general sales taxes is checked.'),
+      line5d: Amount.describe('Schedule A line 5d: total state and local taxes.'),
+      line5e: Amount.describe('Schedule A line 5e: the smaller of line 5d or the limit.'),
+      line17: Amount.describe('Schedule A line 17: total itemized deductions.'),
+    })
+    .nullable()
+    .optional()
+    .describe('Schedule A, when the return itemized deductions; null when it took the standard deduction.'),
+  ageOrBlindBoxes: z
+    .number()
+    .int()
+    .min(0)
+    .max(4)
+    .optional()
+    .describe('How many of the Form 1040 page 1 boxes for being born before the cutoff date or blind (you and spouse) are checked.'),
+  amt: Amount.optional().describe('Alternative minimum tax: Schedule 2 line 1 (2024) or Form 6251 line 11. null if none.'),
   payers: z.array(
     z.object({
       name: z.string(),

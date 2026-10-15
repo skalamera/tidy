@@ -87,4 +87,19 @@ describe('nextAction', () => {
     ];
     expect(nextAction({ ...base, sections: s, missingDocs: 2 }).title).toBe('2 documents still missing');
   });
+
+  it('never says the return is ready while something must be fixed', () => {
+    const blockers = [
+      { sectionId: 'wages' as const, title: 'Both of you have self-employment income' },
+      { sectionId: 'wages' as const, title: 'Another problem' },
+    ];
+    const all = nextAction({ ...base, sections: sec('approved'), blockers });
+    expect(all).toMatchObject({ title: 'Both of you have self-employment income', tone: 'fix' });
+    expect(all.detail).toBe('Tidy can’t print your return until this is sorted. Then 1 more thing to fix.');
+    expect(all.cta?.intent).toEqual({ type: 'open_section', sectionId: 'wages' });
+    // Answers can clear a blocker, so the step's questions come first; then the fix, before approving.
+    expect(nextAction({ ...base, sections: sec('needs_answers', 1), blockers }).title).toBe('Answer 1 quick question');
+    expect(nextAction({ ...base, sections: sec('ready'), blockers }).tone).toBe('fix');
+    expect(nextAction({ ...base, sections: sec('approved'), blockers: [] }).tone).toBe('done');
+  });
 });

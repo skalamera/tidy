@@ -7,6 +7,10 @@ import type {
   F1099DivExtractionT,
   F1099IntExtractionT,
   F1099NecExtractionT,
+  F1099GExtractionT,
+  F1099MiscExtractionT,
+  F1099OidExtractionT,
+  PriorStateExtractionT,
   F1099RExtractionT,
   K1ExtractionT,
   PaymentExtractionT,
@@ -36,7 +40,8 @@ export type SectionStatus = 'locked' | 'working' | 'needs_answers' | 'ready' | '
 export type DocStatus = 'queued' | 'reading' | 'done' | 'unsupported' | 'failed' | 'duplicate';
 
 /** Result of checking one extracted amount against the PDF's own text layer. */
-export type FieldCheck = 'verified' | 'unverified' | 'mismatch';
+/** `missing`: a box every such form fills in came back blank, so a person checks it. */
+export type FieldCheck = 'verified' | 'unverified' | 'mismatch' | 'missing';
 
 /** `firstPage` = page of the original file where this extraction's page 1 starts (for slices of a composite PDF). */
 export type Extraction = { firstPage: number } & (
@@ -51,6 +56,10 @@ export type Extraction = { firstPage: number } & (
   | { form: 'k1'; data: K1ExtractionT }
   | { form: 'f1098'; data: F1098ExtractionT }
   | { form: 'payment'; data: PaymentExtractionT }
+  | { form: 'f1099_misc'; data: F1099MiscExtractionT }
+  | { form: 'f1099_g'; data: F1099GExtractionT }
+  | { form: 'f1099_oid'; data: F1099OidExtractionT }
+  | { form: 'prior_state'; data: PriorStateExtractionT }
 );
 export type ExtractForm = Extraction['form'];
 
@@ -73,9 +82,14 @@ export interface DocumentRecord {
   error: string | null;
 }
 
-export type QuestionKind = 'yes_no' | 'choice' | 'money' | 'text' | 'confirm_amount' | 'name' | 'ssn' | 'address';
+/** `lines`: several amounts at once (`choices` are the lines; the answer is JSON of line → cents).
+ *  `counts`: the same with whole numbers, like days. */
+export type QuestionKind =
+  'yes_no' | 'choice' | 'money' | 'text' | 'confirm_amount' | 'name' | 'ssn' | 'address' | 'lines' | 'counts' | 'area' | 'date';
 
 export interface Question {
+  /** A money correction may be negative (a loss on a K-1, a 1099-B or last year's return). */
+  signed?: boolean;
   /** Stable key: rule id ("foreign-accounts") or "confirm:<docId>:<extractionIndex>:<fieldPath>". */
   id: string;
   sectionId: SectionId;
@@ -83,22 +97,38 @@ export interface Question {
   prompt: string;
   help: string | null;
   choices: { value: string; label: string; keywords?: string }[] | null;
-  /** For confirm_amount: the amount we read, in cents. */
+  /** For confirm_amount: the amount we read, in cents. For money: a starting value. */
   suggested: Cents | null;
+  /** For lines: starting values (line → cents), e.g. from uploaded payment records. */
+  suggestedLines?: Record<string, number> | null;
   blocking: boolean;
   origin: 'rule' | 'extraction';
   answer: string | null; // "yes" | "no" | choice value | cents as string | free text
   answeredAt: string | null;
 }
 
+/** A change shown to the user, worded by code from the facts (never by the AI): "W-2 from Acme Corp: Box 1 wages",
+ *  "$85,000.00" → "$86,000.00". */
+export interface ChangeText {
+  label: string;
+  before: string;
+  after: string;
+}
+
 /** A user (or accepted AI) correction applied on top of derived facts. Path segments address array items by id. */
 export interface Override {
   id: string;
-  path: string[]; // e.g. ["w2s", "w2-doc1-0", "box1Wages"] or ["filingStatus"]
+  path: string[]; // e.g. ["w2s", "w2-doc1-0", "box1Wages"] or ["digitalAssets"]
   value: unknown;
   reason: string;
   createdAt: string;
   createdBy: 'user' | 'ai_proposal';
+  /** Where the change shows, with an Undo button (older saves have none: shown on the summary step). */
+  sectionId?: SectionId;
+  /** The suggestion it came from. */
+  proposalId?: string;
+  /** Old → new as the user accepted it. */
+  change?: ChangeText;
 }
 
 export interface Flag {
@@ -122,8 +152,11 @@ export interface Proposal {
   path: string[];
   value: unknown;
   reason: string;
-  status: 'pending' | 'accepted' | 'rejected';
+  /** `undone`: accepted, then taken back with Undo. */
+  status: 'pending' | 'accepted' | 'rejected' | 'undone';
   createdAt: string;
+  /** Old → new, worded by code when the suggestion was made. */
+  change?: ChangeText;
 }
 
 export interface AppState {

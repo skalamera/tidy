@@ -33,6 +33,9 @@ fetch f8959.pdf https://www.irs.gov/pub/irs-prior/f8959--2025.pdf
 fetch f8960.pdf https://www.irs.gov/pub/irs-prior/f8960--2025.pdf
 fetch f8995.pdf https://www.irs.gov/pub/irs-prior/f8995--2025.pdf
 fetch f8995a.pdf https://www.irs.gov/pub/irs-prior/f8995a--2025.pdf
+fetch f8995aa.pdf https://www.irs.gov/pub/irs-prior/f8995aa--2025.pdf
+fetch f8995ac.pdf https://www.irs.gov/pub/irs-prior/f8995ac--2022.pdf
+fetch f6251.pdf https://www.irs.gov/pub/irs-prior/f6251--2025.pdf
 fetch md500dm.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/500dm.pdf
 fetch md502.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/502.pdf
 fetch md502cg.pdf https://www.marylandcomptroller.gov/content/dam/mdcomp/tax/forms/2025/502cg.pdf
@@ -57,6 +60,7 @@ c5e2c8fa0ec5ee9153a0167734df634afe0ea8bb8483040766e5f4b1b12780f3  f1040se.pdf
 05bc2b3e1dfca65d8c6fc6d652af4fa3736e953c6575d6e9f82590484677d347  f1040sse.pdf
 2426bb330ac54b765b32fbc3eceb878544aa333a3a823e1170aa8261a40fd251  f1040v.pdf
 6899ce672648b280bf00ab47200f1b0fbf40368cfbf137df507b945b8577159a  f2210.pdf
+6995bfd29c6fe1b80fdc396c9c4796c7cef58a966070db0346721eae815fea3f  f6251.pdf
 c05f9d1f5e26b1b21e18b0a13adbbcd3d568bb9f3ca53bd7bba7c795c7799b4a  f4562.pdf
 e8ab787f2caab6a5f22894e4d13585afafaefcbc59428b70e590a84ea8cf9b54  f4797.pdf
 e138560a8c5d591f1619544cbf189658e6d4540e13e9b3726b6fcd653cb2ad1d  f7203.pdf
@@ -68,6 +72,8 @@ d929884fe07b58aca9561aefbfe9fe2196d9e8526b4726e49460589501080537  f8582.pdf
 9b323b7166b5845a776f781b8c82eef94ccd998354e88fc33a1051c3b3789731  f8960.pdf
 55380ad230303e1586ce97f0f224265b8337ad18c9204f0fb7325e95a76b5cde  f8995.pdf
 3362db81b8ef60cfaa93354858c6c92bac16e63984be0805c6479d272a6ec9aa  f8995a.pdf
+fadc0c1cb1ba7cce73fec844403df2cd5b9ce5a8d92c3767785d6b2d2e2656e5  f8995aa.pdf
+30074d5ce00204c6ab09a6146b95043f1e4f81cf6849590dc2caab08b09ae99b  f8995ac.pdf
 f26196b27325dd9dc688fe5b3ec6ae2b1d445a1e01fa6cecc389c2de94f959ca  md500dm.pdf
 4f4d604f27cf6995cbab58b7650fd812c0e4ccc9f8d899f04261ded5a04a24cf  md502.pdf
 8e0a3f2928d010aef85a28ac5480414875dc6778b4a2f57d3ae099bcddd6055f  md502cg.pdf

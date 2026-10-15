@@ -58,9 +58,50 @@ export function parseAddress(answer: string): AddressAnswer | null {
   return addressAnswer({ street, apt: str(v?.apt) ?? '', city, state, zip });
 }
 
-/** The answer as Tidy stores it, or null when it can't be used. Kinds without a fixed shape pass through. */
-export function normalAnswer(kind: QuestionKind, answer: string): string | null {
-  switch (kind) {
+/** Whole cents as the screen sends them ("1250050"), up to $10 trillion; a minus sign for amounts that can be negative. */
+const CENTS = /^-?\d{1,15}$/;
+const MAX_LINE: Record<'lines' | 'counts' | 'area', number> = { lines: 1e15, counts: 366, area: 1_000_000 };
+
+/** A `lines`, `counts` (days) or `area` (square feet) answer: JSON of line → non-negative whole number, every line
+ *  one of the question's. */
+export function parseLines(
+  answer: string,
+  lines?: readonly { value: string }[] | null,
+  kind: 'lines' | 'counts' | 'area' = 'lines',
+): Record<string, number> | null {
+  const v = fieldsOf(answer);
+  if (!v || Array.isArray(v)) return null;
+  const out: Record<string, number> = {};
+  for (const [k, n] of Object.entries(v)) {
+    if (lines && !lines.some((l) => l.value === k)) return null;
+    if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0 || n > MAX_LINE[kind]) return null;
+    out[k] = n;
+  }
+  return out;
+}
+
+/** A date of birth typed as MM/DD/YYYY (or YYYY-MM-DD) → "YYYY-MM-DD", or null if it isn't a real date in
+ *  1900–2025. */
+export function birthDate(text: string): string | null {
+  const t = text.trim();
+  const us = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const [y, m, d] = us ? [+us[3]!, +us[1]!, +us[2]!] : iso ? [+iso[1]!, +iso[2]!, +iso[3]!] : [0, 0, 0];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (y < 1900 || y > 2025 || date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** "04/27/1958" for "1958-04-27". */
+export const dateText = (iso: string) => {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
+};
+
+/** The answer as Tidy stores it, or null when it can't be used. This is the trust boundary: the screen checks too, but
+ *  nothing the renderer sends reaches the facts unless it has the question's shape. */
+export function normalAnswer(q: { kind: QuestionKind; choices: { value: string }[] | null }, answer: string): string | null {
+  switch (q.kind) {
     case 'ssn':
       return ssnDigits(answer);
     case 'name': {
@@ -71,8 +112,26 @@ export function normalAnswer(kind: QuestionKind, answer: string): string | null 
       const a = parseAddress(answer);
       return a && JSON.stringify(a);
     }
-    default:
-      return answer;
+    case 'yes_no':
+      return answer === 'yes' || answer === 'no' ? answer : null;
+    case 'choice':
+      return q.choices?.some((c) => c.value === answer) ? answer : null;
+    case 'money':
+      return CENTS.test(answer) ? String(Number.parseInt(answer, 10)) : null;
+    case 'confirm_amount':
+      return answer === 'yes' || CENTS.test(answer) ? answer : null;
+    case 'text': {
+      const t = answer.trim();
+      return t !== '' && t.length <= 500 ? t : null;
+    }
+    case 'lines':
+    case 'counts':
+    case 'area': {
+      const v = q.choices ? parseLines(answer, q.choices, q.kind) : null;
+      return v && JSON.stringify(v);
+    }
+    case 'date':
+      return birthDate(answer);
   }
 }
 

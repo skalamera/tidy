@@ -26,6 +26,8 @@ export interface NextActionInput {
   busyDocs: number;
   sections: SectionState[];
   missingDocs: number;
+  /** "Must fix" flags. While any is open the return can't be printed, so the Now bar never says it's ready. */
+  blockers?: { sectionId: SectionId; title: string }[];
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -58,51 +60,72 @@ export function nextAction(i: NextActionInput): NextAction {
     };
   }
   const current = i.sections.find((s) => s.status !== 'approved');
-  if (!current) {
+  const order = i.sections.map((s) => s.id);
+  const reached = current ? order.indexOf(current.id) : order.length;
+  const mustFix = (i.blockers ?? [])
+    .filter((b) => order.indexOf(b.sectionId) <= reached)
+    .sort((a, b) => order.indexOf(a.sectionId) - order.indexOf(b.sectionId));
+  const fix = (): NextAction | null => {
+    const b = mustFix[0];
+    if (!b) return null;
+    const more = mustFix.length - 1;
     return {
-      title: 'Your return is ready',
-      detail: 'Download the print-ready package and follow the filing steps.',
-      cta: { label: 'Download package', intent: { type: 'export' } },
-      tone: 'done',
+      title: b.title,
+      detail: `Tidy can’t print your return until this is sorted.${more > 0 ? ` Then ${plural(more, 'more thing')} to fix.` : ''}`,
+      cta: { label: 'Show me', intent: { type: 'open_section', sectionId: b.sectionId } },
+      tone: 'fix',
     };
+  };
+  if (!current) {
+    return (
+      fix() ?? {
+        title: 'Your return is ready',
+        detail: 'Download the print-ready package and follow the filing steps.',
+        cta: { label: 'Download package', intent: { type: 'export' } },
+        tone: 'done',
+      }
+    );
   }
   const open = { type: 'open_section', sectionId: current.id } as const;
-  switch (current.status) {
-    case 'working':
-      return {
-        title: `Reading ${plural(i.busyDocs, 'document')}…`,
-        detail: 'Usually under a minute each. Ask anything in the chat meanwhile.',
-        cta: null,
-        tone: 'wait',
-      };
-    case 'needs_answers':
-      if (current.id === 'documents' && i.missingDocs > 0) {
-        return {
-          title: `${plural(i.missingDocs, 'document')} still missing`,
-          detail: 'Drop them in, or tell us you won’t get them this year.',
-          cta: { label: 'Open documents', intent: open },
-          tone: 'go',
-        };
-      }
-      return {
-        title: `Answer ${plural(current.openQuestions, 'quick question')}`,
-        detail: `They’re in “${current.title}”. Your answers fill in the rest automatically.`,
-        cta: { label: 'Answer', intent: open },
-        tone: 'go',
-      };
-    case 'needs_reapproval':
-      return {
-        title: `${current.title} changed. Take another look`,
-        detail: 'New information updated this section. Check what changed, then approve again.',
-        cta: { label: 'Review changes', intent: open },
-        tone: 'fix',
-      };
-    default:
-      return {
-        title: `Review and approve: ${current.title}`,
-        detail: 'Check the numbers. Click any amount to see exactly where it came from.',
-        cta: { label: 'Review', intent: open },
-        tone: 'go',
-      };
+  if (current.status === 'working') {
+    return {
+      title: `Reading ${plural(i.busyDocs, 'document')}…`,
+      detail: 'Usually under a minute each. Ask anything in the chat meanwhile.',
+      cta: null,
+      tone: 'wait',
+    };
   }
+  if (current.status === 'needs_answers') {
+    if (current.id === 'documents' && i.missingDocs > 0) {
+      return {
+        title: `${plural(i.missingDocs, 'document')} still missing`,
+        detail: 'Drop them in, or tell us you won’t get them this year.',
+        cta: { label: 'Open documents', intent: open },
+        tone: 'go',
+      };
+    }
+    return {
+      title: `Answer ${plural(current.openQuestions, 'quick question')}`,
+      detail: `They’re in “${current.title}”. Your answers fill in the rest automatically.`,
+      cta: { label: 'Answer', intent: open },
+      tone: 'go',
+    };
+  }
+  // Answers can clear a blocker, so questions come first; then anything that must be fixed, before more approving.
+  const blocker = fix();
+  if (blocker) return blocker;
+  if (current.status === 'needs_reapproval') {
+    return {
+      title: `${current.title} changed. Take another look`,
+      detail: 'New information updated this section. Check what changed, then approve again.',
+      cta: { label: 'Review changes', intent: open },
+      tone: 'fix',
+    };
+  }
+  return {
+    title: `Review and approve: ${current.title}`,
+    detail: 'Check the numbers. Click any amount to see exactly where it came from.',
+    cta: { label: 'Review', intent: open },
+    tone: 'go',
+  };
 }

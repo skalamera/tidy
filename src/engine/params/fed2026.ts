@@ -66,6 +66,11 @@ export const FED_2026: FedParams = {
     singleOrHoh: usd(2_050),
     marriedOrQss: usd(1_650),
   },
+  /** 2025 amounts (OBBBA §70102 and Rev. Proc. 2024-40), for the 2026 refund worksheet. */
+  priorYear: {
+    standardDeduction: byStatus(usd(15_750), usd(31_500), usd(15_750), usd(23_625), usd(31_500)),
+    additional65OrBlind: { singleOrHoh: usd(2_000), marriedOrQss: usd(1_600) },
+  },
   seniorDeduction: {
     amountPerPerson: usd(6_000),
     phaseOutRate: pct('6'),
@@ -79,6 +84,16 @@ export const FED_2026: FedParams = {
     rate85: pct('85'),
   },
   psoMaxExclusion: usd(3_000),
+  /** Qualified charitable distributions are tax-free up to this much per IRA owner (§408(d)(8)(A); Notice 2025-67). */
+  qcdLimit: usd(111_000),
+  /** Schedule 1-A Parts II–IV (OBBBA §§70201–70203, 2025–2028, not indexed): tips, overtime, car loan interest. */
+  schedule1A: {
+    tipsCap: usd(25_000),
+    overtimeCap: byStatus(usd(12_500), usd(25_000), 0, usd(12_500), usd(12_500)),
+    tipsOvertimePhaseOutStart: byStatus(usd(150_000), usd(300_000), 0, usd(150_000), usd(150_000)),
+    carLoanCap: usd(10_000),
+    carLoanPhaseOutStart: byStatus(usd(100_000), usd(200_000), usd(100_000), usd(100_000), usd(100_000)),
+  },
   capitalGains: {
     zeroRateMax: byStatus(usd(49_450), usd(98_900), usd(49_450), usd(66_200), usd(98_900)),
     fifteenRateMax: byStatus(usd(545_500), usd(613_700), usd(306_850), usd(579_600), usd(613_700)),
@@ -92,6 +107,9 @@ export const FED_2026: FedParams = {
     rate: pct('20'),
     threshold: byStatus(usd(201_750), usd(403_500), usd(201_775), usd(201_750), usd(201_750)),
     phaseInRange: byStatus(usd(75_000), usd(150_000), usd(75_000), usd(75_000), usd(75_000)),
+    /** §199A(i) (OBBBA §70105): at least $400 when QBI from active trades or businesses is $1,000 or more. */
+    minimumDeduction: usd(400),
+    minimumDeductionActiveQbi: usd(1_000),
   },
   selfEmployment: {
     netEarningsFactor: pct('92.35'),
@@ -139,7 +157,8 @@ export const FED_2026: FedParams = {
   amt: {
     exemption: byStatus(usd(90_100), usd(140_200), usd(70_100), usd(90_100), usd(140_200)),
     phaseOutStart: byStatus(usd(500_000), usd(1_000_000), usd(500_000), usd(500_000), usd(1_000_000)),
-    phaseOutRate: pct('25'),
+    /** OBBBA §70107 doubled the exemption phase-out rate from 25% to 50% starting in 2026. */
+    phaseOutRate: pct('50'),
     rate28Threshold: byStatus(usd(244_500), usd(244_500), usd(122_250), usd(244_500), usd(244_500)),
     rate26: pct('26'),
     rate28: pct('28'),

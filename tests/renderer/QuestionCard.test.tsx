@@ -129,4 +129,48 @@ describe('answerText', () => {
     expect(answerText(question({ kind: 'address', answer: JSON.stringify(home) }))).toBe('1 Example Lane, Apt 2, Rockville, MD 20850');
     expect(answerText(question({ kind: 'money', answer: '1250050' }))).toBe('$12,500.50');
   });
+
+  it('takes several amounts at once, shows the total, and sends line → cents', async () => {
+    const onAnswer = vi.fn(async () => {});
+    const choices = [
+      { value: 'insurance', label: 'Insurance (line 9)' },
+      { value: 'repairs', label: 'Repairs (line 14)' },
+      { value: 'taxes', label: 'Taxes (line 16)' },
+    ];
+    render(<QuestionCard question={question({ kind: 'lines', choices })} onAnswer={onAnswer} />);
+    await userEvent.type(screen.getByLabelText('Insurance (line 9)'), '1,200');
+    await userEvent.type(screen.getByLabelText('Repairs (line 14)'), '$800.50');
+    expect(screen.getByText('Total $2,000.50')).toBeTruthy();
+    await userEvent.type(screen.getByLabelText('Taxes (line 16)'), 'lots');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('alert').textContent).toContain('Taxes (line 16)');
+    expect(onAnswer).not.toHaveBeenCalled();
+    await userEvent.clear(screen.getByLabelText('Taxes (line 16)'));
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onAnswer).toHaveBeenCalledWith(JSON.stringify({ insurance: 120_000, repairs: 80_050 }));
+    expect(answerText(question({ kind: 'lines', choices, answer: JSON.stringify({ insurance: 120_000, repairs: 80_050 }) }))).toBe(
+      '$2,000.50 total',
+    );
+  });
+
+  it('takes day counts, prefilled with the earlier answer when changing it', async () => {
+    const onAnswer = vi.fn(async () => {});
+    const choices = [
+      { value: 'fairRentalDays', label: 'Days rented at a fair price' },
+      { value: 'personalUseDays', label: 'Days you or your family used it' },
+    ];
+    const answer = JSON.stringify({ fairRentalDays: 300 });
+    render(<QuestionCard question={question({ kind: 'counts', choices, answer })} onAnswer={onAnswer} />);
+    expect((screen.getByLabelText('Days rented at a fair price') as HTMLInputElement).value).toBe('300');
+    await userEvent.type(screen.getByLabelText('Days you or your family used it'), '400');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('alert').textContent).toContain('0 to 366');
+    await userEvent.clear(screen.getByLabelText('Days you or your family used it'));
+    await userEvent.type(screen.getByLabelText('Days you or your family used it'), '12');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onAnswer).toHaveBeenCalledWith(JSON.stringify({ fairRentalDays: 300, personalUseDays: 12 }));
+    expect(answerText(question({ kind: 'counts', choices, answer }))).toBe(
+      'Days rented at a fair price: 300, Days you or your family used it: 0',
+    );
+  });
 });

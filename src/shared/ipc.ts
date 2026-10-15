@@ -27,8 +27,9 @@ export interface TidyApi {
   completeWelcome(): Promise<void>;
   skipPriorYear(): Promise<void>;
   setApiKey(provider: AiProvider, key: string): Promise<Result>;
-  pickFiles(): Promise<void>;
-  addPaths(paths: string[]): Promise<{ added: number; duplicates: number; rejected: string[] }>;
+  /** Asks for files and adds them; the result says what was added and why anything wasn't. */
+  pickFiles(): Promise<AddResult>;
+  addPaths(paths: string[]): Promise<AddResult>;
   /** Drag-and-drop helper: absolute path of a dropped File (Electron webUtils). */
   pathForFile(file: File): string;
   retryDocument(id: string): Promise<void>;
@@ -43,7 +44,15 @@ export interface TidyApi {
   deleteChat(id: string): Promise<void>;
   searchChats(query: ChatQuery): Promise<ChatHit[]>;
   decideProposal(id: string, accept: boolean): Promise<Result>;
+  /** Takes back a change accepted from chat. */
+  undoOverride(id: string): Promise<Result>;
   exportPackage(): Promise<ExportResult>;
+  /** Saves a passphrase-locked backup of the return and its documents. */
+  exportBackup(passphrase: string): Promise<ExportResult>;
+  /** Replaces the return with one from a backup file. */
+  restoreBackup(passphrase: string): Promise<Result>;
+  /** The app menu asked to back up or restore. */
+  onBackupPrompt(cb: (mode: 'export' | 'restore') => void): () => void;
 }
 
 export const IPC = {
@@ -70,5 +79,16 @@ export const IPC = {
   deleteChat: 'chat:delete',
   searchChats: 'chat:search',
   decideProposal: 'proposals:decide',
+  undoOverride: 'overrides:undo',
   exportPackage: 'export:package',
+  exportBackup: 'backup:export',
+  restoreBackup: 'backup:restore',
+  backupPrompt: 'backup:prompt',
 } as const;
+
+/** What adding files did. `rejected` holds one plain sentence per file that wasn't added. */
+export interface AddResult {
+  added: number;
+  duplicates: number;
+  rejected: string[];
+}

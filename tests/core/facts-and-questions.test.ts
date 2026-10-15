@@ -70,12 +70,9 @@ describe('deriveFacts', () => {
 });
 
 describe('applyOverrides', () => {
-  it('throws on a path that no longer exists', () => {
-    expect(() =>
-      applyOverrides({ w2s: [] as { id: string }[] }, [
-        { id: 'x', path: ['w2s', 'gone', 'box1Wages'], value: 1, reason: '', createdAt: NOW, createdBy: 'user' },
-      ]),
-    ).toThrow(/not found/);
+  it('sets aside a path that no longer exists instead of throwing (see overrides.test.ts)', () => {
+    const stale = { id: 'x', path: ['w2s', 'gone', 'box1Wages'], value: 1, reason: '', createdAt: NOW, createdBy: 'user' as const };
+    expect(applyOverrides({ w2s: [] as { id: string }[] }, [stale])).toEqual({ facts: { w2s: [] }, skipped: [stale] });
   });
 });
 

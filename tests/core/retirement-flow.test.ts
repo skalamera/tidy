@@ -7,7 +7,7 @@ import { buildView } from '../../src/core/view';
 import { amt, answered, doc, priorYear, r1099Extraction, ssa1099Extraction, stateWith } from '../fixtures/state';
 
 describe('A1 core workflow: seniors, 1099-R, SSA-1099, questions, flags, and view', () => {
-  it('follows up on senior-or-blind = yes with per-person 65+ and blind questions instead of blocking', () => {
+  it('asks each person’s date of birth and who is blind, instead of blocking', () => {
     const base = stateWith({
       documents: [doc('py', [priorYear()])],
     });
@@ -19,10 +19,10 @@ describe('A1 core workflow: seniors, 1099-R, SSA-1099, questions, flags, and vie
       'digital-assets': 'no',
       'has-dependents': 'no',
       'other-income': 'no',
-      'senior-or-blind': 'yes',
-      'you-65': 'yes',
+      'your-birth-date': '1958-04-27',
+      'spouse-birth-date': '1960-12-31',
+      'anyone-blind': 'yes',
       'you-blind': 'no',
-      'spouse-65': 'yes',
       'spouse-blind': 'yes',
     });
     const f = deriveFacts(s);
@@ -67,11 +67,9 @@ describe('A1 core workflow: seniors, 1099-R, SSA-1099, questions, flags, and vie
       'resident-state': 'MD',
       'full-year-resident': 'yes',
       'md-subdivision': '1609',
-      'senior-or-blind': 'yes',
-      'you-65': 'yes',
-      'you-blind': 'no',
-      'spouse-65': 'yes',
-      'spouse-blind': 'no',
+      'your-birth-date': '1958-04-27',
+      'spouse-birth-date': '1959-08-02',
+      'anyone-blind': 'no',
       'ira-nondeductible-basis': 'no',
       'ira-qcd': 'yes',
       'ira-qcd-amount': '500000', // $5,000 QCD

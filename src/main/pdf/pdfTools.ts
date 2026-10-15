@@ -9,6 +9,7 @@ export const pdfTools: PdfTools = {
   },
 
   async pageTexts(bytes) {
+    // pdf.js 6 never evaluates code from a document (the old isEvalSupported switch is gone with it).
     const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
     try {
       const doc = await task.promise;

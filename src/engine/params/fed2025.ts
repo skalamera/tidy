@@ -58,6 +58,11 @@ export const FED_2025 = {
     singleOrHoh: usd(2_000),
     marriedOrQss: usd(1_600),
   },
+  /** The year before: 2024 amounts, for the State and Local Income Tax Refund Worksheet lines 5 and 6. */
+  priorYear: {
+    standardDeduction: byStatus(usd(14_600), usd(29_200), usd(14_600), usd(21_900), usd(29_200)),
+    additional65OrBlind: { singleOrHoh: usd(1_950), marriedOrQss: usd(1_550) },
+  },
   /** OBBBA (2025) Schedule 1-A Part V — Enhanced Deduction for Seniors (Form 1040 line 13b). */
   seniorDeduction: {
     amountPerPerson: usd(6_000),
@@ -73,6 +78,16 @@ export const FED_2025 = {
     rate85: pct('85'),
   },
   psoMaxExclusion: usd(3_000),
+  /** Qualified charitable distributions are tax-free up to this much per IRA owner (§408(d)(8)(A); Notice 2024-80). */
+  qcdLimit: usd(108_000),
+  /** Schedule 1-A Parts II–IV (OBBBA §§70201–70203, 2025–2028, not indexed): tips, overtime, car loan interest. */
+  schedule1A: {
+    tipsCap: usd(25_000),
+    overtimeCap: byStatus(usd(12_500), usd(25_000), 0, usd(12_500), usd(12_500)),
+    tipsOvertimePhaseOutStart: byStatus(usd(150_000), usd(300_000), 0, usd(150_000), usd(150_000)),
+    carLoanCap: usd(10_000),
+    carLoanPhaseOutStart: byStatus(usd(100_000), usd(200_000), usd(100_000), usd(100_000), usd(100_000)),
+  },
   capitalGains: {
     zeroRateMax: byStatus(usd(48_350), usd(96_700), usd(48_350), usd(64_750), usd(96_700)),
     fifteenRateMax: byStatus(usd(533_400), usd(600_050), usd(300_000), usd(566_700), usd(600_050)),
@@ -87,6 +102,9 @@ export const FED_2025 = {
     rate: pct('20'),
     threshold: byStatus(usd(197_300), usd(394_600), usd(197_300), usd(197_300), usd(197_300)),
     phaseInRange: byStatus(usd(50_000), usd(100_000), usd(50_000), usd(50_000), usd(50_000)),
+    /** §199A(i) minimum deduction (OBBBA §70105) starts in 2026; zero turns it off. */
+    minimumDeduction: usd(0),
+    minimumDeductionActiveQbi: usd(1_000),
   },
   /** Schedule SE, Schedule C home office, SEP-IRA, and Form 7206 self-employed parameters (2025). */
   selfEmployment: {

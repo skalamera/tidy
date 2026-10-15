@@ -6,7 +6,8 @@ import { buildView } from '../../src/core/view';
 import { NO_CHAT, type ChatMessage, type ChatView } from '../../src/shared/chat';
 import type { TidyApi } from '../../src/shared/ipc';
 import { ChatPanel } from '../../src/renderer/src/components/ChatPanel';
-import { stateWith } from '../fixtures/state';
+import { doc, NOW, stateWith, w2Extraction } from '../fixtures/state';
+import type { AppState, Proposal } from '../../src/shared/state';
 
 const TODAY = new Date('2026-10-13T16:00:00.000Z'); // a Tuesday, midday in every US time zone
 
@@ -143,5 +144,67 @@ describe('ChatPanel', () => {
     panel({ currentId: 'c2', busyId: 'c3', messages: [msg('What is box 12?')] });
     expect(screen.queryByText('Thinking…')).toBeNull();
     expect(screen.getByText('Tidy is still answering in another chat.')).toBeTruthy();
+  });
+
+  it('words a suggestion from the return instead of the AI, and offers Undo once it is made', async () => {
+    const decideProposal = vi.fn(async () => ({ ok: true as const }));
+    const undoOverride = vi.fn(async () => ({ ok: true as const }));
+    install({ decideProposal, undoOverride });
+    const wages = ['w2s', 'w2-d1-0', 'box1Wages'];
+    const proposal: Proposal = {
+      id: 'p1',
+      sectionId: 'wages',
+      description: 'Just a small typo fix',
+      path: wages,
+      value: 0,
+      reason: 'Blurry scan',
+      status: 'pending',
+      createdAt: NOW,
+    };
+    const chat = { ...NO_CHAT, currentId: 'c1', messages: [msg('Fix it'), msg('Here it is', 'assistant', { proposalIds: ['p1'] })] };
+    const show = (s: AppState) =>
+      render(
+        <ChatPanel
+          view={buildView(s, { aiProvider: 'anthropic', chat })}
+          sectionId="wages"
+          onClose={() => undefined}
+          onToast={() => undefined}
+          onChangeAi={() => undefined}
+        />,
+      );
+    const pending = stateWith({ documents: [doc('d1', [w2Extraction()])], proposals: [proposal] });
+    show(pending);
+    expect(screen.getByText('W-2 from Acme Corp: Box 1 wages')).toBeTruthy();
+    expect(screen.getByText('$85,000')).toBeTruthy();
+    expect(screen.getByText('$0')).toBeTruthy();
+    expect(screen.queryByText('Just a small typo fix')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /Make this change/ }));
+    expect(decideProposal).toHaveBeenCalledWith('p1', true);
+    cleanup();
+
+    show({
+      ...pending,
+      proposals: [{ ...proposal, status: 'accepted' }],
+      overrides: [
+        {
+          id: 'o1',
+          path: wages,
+          value: 0,
+          reason: 'Blurry scan',
+          createdAt: NOW,
+          createdBy: 'ai_proposal',
+          sectionId: 'wages',
+          proposalId: 'p1',
+        },
+      ],
+    });
+    expect(screen.getByText('Changed.')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /Undo/ }));
+    expect(undoOverride).toHaveBeenCalledWith('o1');
+    cleanup();
+
+    show({ ...pending, documents: [] }); // the W-2 is gone: the suggestion can't be made any more
+    expect(screen.queryByRole('button', { name: /Make this change/ })).toBeNull();
+    expect(screen.getByText('This no longer fits your return, so it can’t be made.')).toBeTruthy();
   });
 });

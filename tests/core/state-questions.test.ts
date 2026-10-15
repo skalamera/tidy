@@ -16,7 +16,8 @@ describe('Maryland questions', () => {
   it('asks Maryland residents where they lived and about estimated payments', () => {
     const s = answer(base(), { 'filing-status-same': 'yes', 'resident-state': 'MD' });
     const ids = s.questions.map((q) => q.id);
-    expect(ids).toEqual(expect.arrayContaining(['md-subdivision', 'state-estimates-2025', 'state-estimate-january']));
+    expect(ids).toEqual(expect.arrayContaining(['md-subdivision', 'state-estimates', 'state-estimate-prior-january']));
+    expect(s.questions.find((q) => q.id === 'state-estimates')).toMatchObject({ kind: 'lines', sectionId: 'payments' });
     const where = s.questions.find((q) => q.id === 'md-subdivision')!;
     expect(where.choices!.find((c) => c.value === '1609')?.label).toBe('City of Rockville · Montgomery County');
     expect(where.choices!.find((c) => c.value === '0300')?.label).toBe('Baltimore County (not in a town)');
@@ -27,15 +28,16 @@ describe('Maryland questions', () => {
       'filing-status-same': 'yes',
       'resident-state': 'MD',
       'md-subdivision': '1609',
-      'federal-estimates': '1000000',
-      'state-estimates-2025': '300000',
-      'state-estimate-january': '100000',
+      'federal-estimates': JSON.stringify({ q1: 250_000, q2: 250_000, q3: 250_000, q4: 250_000 }),
+      'state-estimates': JSON.stringify({ q1: 100_000, q2: 100_000, q3: 100_000, q4b: 100_000 }),
     });
     const f = deriveFacts(s);
     expect(f.residency).toMatchObject({ state: 'MD', mdCounty: 'Montgomery', mdSubdivision: { code: '1609', name: 'City of Rockville' } });
-    expect(f.payments.federalEstimated).toEqual([1_000_000]);
-    expect(f.stateReturn.estimatedPayments).toEqual([300_000, 100_000]);
-    // Only the payment made during 2025 counts toward the 2025 SALT deduction.
+    expect(f.payments.federalEstimated).toEqual([250_000, 250_000, 250_000, 250_000]);
+    expect(f.payments.federalEstimatedByQuarter).toEqual([250_000, 250_000, 250_000, 250_000]);
+    expect(f.stateReturn.estimatedPayments).toEqual([100_000, 100_000, 100_000, 100_000]);
+    expect(f.stateReturn.estimatedByQuarter).toEqual([100_000, 100_000, 100_000, 100_000]);
+    // Only what was paid during 2025 counts toward the 2025 SALT deduction (not the January 2026 payment).
     expect(f.itemized.stateIncomeTaxPayments.map((p) => p.amount)).toEqual([300_000]);
   });
 

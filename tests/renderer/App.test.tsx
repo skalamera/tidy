@@ -21,6 +21,7 @@ function install(view: AppView, overrides: Partial<TidyApi> = {}) {
     onChatDelta: () => () => undefined,
     onNavigate: () => () => undefined,
     onAppError: () => () => undefined,
+    onBackupPrompt: () => () => undefined,
     ...overrides,
   };
   window.tidy = new Proxy(base, {

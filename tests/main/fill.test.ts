@@ -49,8 +49,8 @@ describe('fillPdf', () => {
     const get = (key: string) => form.getTextField(FEDERAL_MAPS.f1040.text[key]).getText();
     expect(get('f1040.11a')).toBe('447,000');
     expect(get('f1040.16')).toBe('71,884');
-    expect(get('f1040.24')).toBe('75,232');
-    expect(get('f1040.34')).toBe('20,938');
+    expect(get('f1040.24')).toBe('75,138');
+    expect(get('f1040.34')).toBe('21,032');
     expect(get('ssn')).toBe('400000001');
     expect(form.getCheckBox(FEDERAL_MAPS.f1040.checks.mfj).isChecked()).toBe(true);
     expect(form.getCheckBox(FEDERAL_MAPS.f1040.checks.single).isChecked()).toBe(false);
@@ -206,9 +206,17 @@ describe('buildPackage', () => {
   });
 
   it('tells the user exactly where to mail and how to pay', () => {
-    const owe = filingSteps(S1, { ...computeFederal(S1), amountOwed: 50_000, refund: 0 }).flatMap((g) => g.steps);
-    expect(owe.some((s) => s.includes('irs.gov/payments'))).toBe(true);
-    expect(owe.some((s) => s.includes('Louisville, KY 40293-1000'))).toBe(true);
+    const pages = { federal: [2, 4] as [number, number], voucher: 5, state: [6, 9] as [number, number], stateVoucher: 10 };
+    const owe = filingSteps(S1, { ...computeFederal(S1), amountOwed: 50_000, refund: 0 }, null, pages).flatMap((g) => g.steps);
+    // Paying online means nothing is enclosed: the no-payment address, and no voucher.
+    const online = owe.find((s) => s.includes('irs.gov/payments'))!;
+    expect(online).toContain('leave out Form 1040-V (page 5)');
+    expect(online).toContain('Kansas City, MO 64999-0002');
+    const check = owe.find((s) => s.includes('by check'))!;
+    expect(check).toContain('United States Treasury');
+    expect(check).toContain('loose in the envelope');
+    expect(check).toContain('Louisville, KY 40293-1000');
+    expect(owe[0]).toContain('(pages 2–4 of this package)');
     const refund = filingSteps(S2, computeFederal(S2)).flatMap((g) => g.steps);
     expect(refund.some((s) => s.includes('Kansas City, MO 64999-0002'))).toBe(true);
     expect(refund.some((s) => s.includes('you and your spouse both sign'))).toBe(true);

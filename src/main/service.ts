@@ -3,25 +3,26 @@ import path from 'node:path';
 import { computeFederal } from '../engine/federal/form1040';
 import { formatUsd } from '../engine/money';
 import { computeStateReturn } from '../engine/state';
-import { amountAt } from '../core/amount';
+import { amountAt, amountCents } from '../core/amount';
 import { deriveFacts } from '../core/deriveFacts';
-import { applyOverrides } from '../core/overrides';
+import { applyOverrides, changeText, editableFacts, overrideProblem } from '../core/overrides';
 import { reconcile } from '../core/reconcile';
 import { searchChats as matchingChats } from '../core/chatSearch';
 import { buildView, problemView, type AppView, type ViewContext } from '../core/view';
 import { AI_NAMES, type AiProvider } from '../shared/ai';
 import { normalAnswer } from '../shared/answers';
 import { chatTitle, type ChatHit, type ChatMessage, type ChatQuery, type ChatView, type Conversation } from '../shared/chat';
-import { IPC, type ExportResult, type Result, type ScreenContext } from '../shared/ipc';
-import type { AppState, SectionId } from '../shared/state';
+import { IPC, type AddResult, type ExportResult, type Result, type ScreenContext } from '../shared/ipc';
+import { SECTION_IDS, type AppState, type Override, type SectionId } from '../shared/state';
 import type { LlmClient } from './ai/llm';
 import { runChatTurn, type ChatModel, type ToolHandlers } from './ai/chat';
 import { aiFailure } from './ai/errors';
 import type { ChatStore } from './chats';
 import { keyProblem } from './apiKey';
 import type { LawSearch } from './law/search';
-import { addFile, processDocument, type PdfTools } from './pipeline/ingest';
+import { addFile, processDocument, type PdfTools, RejectedFile } from './pipeline/ingest';
 import type { ReturnStore } from './store';
+import { MIN_PASSPHRASE, openWithPassphrase, sealWithPassphrase, WrongPassphraseError } from './vault';
 
 export interface Connection {
   provider: AiProvider;
@@ -45,10 +46,27 @@ export interface ServiceDeps {
   newId: () => string;
   emit: (channel: string, payload: unknown) => void;
   pickPaths: () => Promise<string[]>;
+  /** Converts an iPhone photo (HEIC) to JPEG; absent where the system can't. */
+  heicToJpeg?: (file: string) => Promise<Buffer>;
   buildPackage: (state: AppState) => Promise<Uint8Array>;
   savePath: (defaultName: string) => Promise<string | null>;
   writeFile: (file: string, bytes: Uint8Array) => Promise<void>;
+  /** Asks for a Tidy backup file to restore; null when cancelled. */
+  pickBackupFile?: () => Promise<string | null>;
+  readFile?: (file: string) => Promise<Buffer>;
 }
+
+/** What a backup file holds once its passphrase opens it. */
+interface BackupPayload {
+  format: 'tidy-backup';
+  version: 1;
+  taxYear: 2025;
+  exportedAt: string;
+  state: AppState;
+  documents: Record<string, string>; // id → base64 of the original file
+}
+/** Document ids become file names, so a restored backup's ids must look like Tidy's own. */
+const DOCUMENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PARALLEL_READS = 2;
@@ -193,25 +211,49 @@ export class TidyService {
 
   // ---------- documents ----------
 
-  async pickFiles(): Promise<void> {
-    await this.addPaths(await this.deps.pickPaths());
+  async pickFiles(): Promise<AddResult> {
+    return this.addPaths(await this.deps.pickPaths());
   }
 
-  async addPaths(paths: string[]): Promise<{ added: number; duplicates: number; rejected: string[] }> {
-    const out = { added: 0, duplicates: 0, rejected: [] as string[] };
+  async addPaths(paths: string[]): Promise<AddResult> {
+    const out: AddResult = { added: 0, duplicates: 0, rejected: [] };
     for (const p of paths) {
+      let name = path.basename(p);
       try {
-        const bytes = await readFile(p);
-        if (bytes.length > MAX_FILE_BYTES) throw new Error(`${path.basename(p)} is over 50 MB.`);
-        const r = await addFile(this.ingestDeps(), path.basename(p), bytes);
+        const bytes = await this.readUpload(p, name);
+        if (/\.(heic|heif)$/i.test(name)) name = name.replace(/\.(heic|heif)$/i, '.jpg');
+        if (bytes.length > MAX_FILE_BYTES) throw new RejectedFile(`${name} is over 50 MB.`);
+        const r = await addFile(this.ingestDeps(), name, bytes);
         if (r.duplicate) out.duplicates++;
         else out.added++;
       } catch (e) {
-        out.rejected.push((e as Error).message);
+        if (e instanceof RejectedFile) out.rejected.push(e.message);
+        else {
+          this.deps.log(`Adding ${name}`, e);
+          out.rejected.push(
+            /Password|Encrypted/.test((e as Error).name)
+              ? `${name} is password-protected. Save a copy without the password and add that.`
+              : `Tidy couldn’t read ${name}. Check that it opens on your Mac.`,
+          );
+        }
       }
     }
     this.pump();
     return out;
+  }
+
+  /** An upload's bytes. iPhone photos (HEIC) become JPEG, since the AIs don't read HEIC. */
+  private async readUpload(file: string, name: string): Promise<Buffer> {
+    try {
+      if (!/\.(heic|heif)$/i.test(name)) return await readFile(file);
+      if (!this.deps.heicToJpeg) throw new RejectedFile(`Tidy can’t read ${name}. Save it as a JPG and add that.`);
+      return await this.deps.heicToJpeg(file);
+    } catch (e) {
+      if (e instanceof RejectedFile) throw e;
+      this.deps.log(`Reading ${name}`, e);
+      const code = (e as NodeJS.ErrnoException).code;
+      throw new RejectedFile(code === 'EISDIR' ? `${name} is a folder. Add the files inside it instead.` : `Tidy couldn’t open ${name}.`);
+    }
   }
 
   async retryDocument(id: string): Promise<void> {
@@ -269,20 +311,39 @@ export class TidyService {
       if (questionId.startsWith('expected:')) {
         const e = d.expected.find((x) => `expected:${x.key}` === questionId);
         if (e) e.dismissed = true;
+      } else if (questionId.startsWith('confirm-group:')) {
+        // A table of amounts checked at once: each line is what the document shows (blank = 0).
+        const q = d.questions.find((x) => x.id === questionId);
+        const value = q ? normalAnswer(q, answer) : null;
+        const [, docId, idx] = questionId.split(':');
+        const doc = d.documents.find((x) => x.id === docId);
+        const data = doc?.extractions[Number(idx)]?.data;
+        if (q && value !== null && doc && data) {
+          const lines = JSON.parse(value) as Record<string, number>;
+          for (const c of q.choices ?? []) {
+            const a = amountAt(data, c.value);
+            if (!a) continue;
+            const cents = lines[c.value] ?? 0;
+            if (cents !== amountCents(a)) Object.assign(a, { amount: (cents / 100).toFixed(2), quote: 'Corrected by you' });
+            doc.fieldChecks[`${idx}:${c.value}`] = 'verified';
+          }
+        }
       } else if (questionId.startsWith('confirm:')) {
+        const q = d.questions.find((x) => x.id === questionId);
+        const value = q ? normalAnswer(q, answer) : null;
         const [, docId, idx, field] = questionId.split(':');
         const doc = d.documents.find((x) => x.id === docId);
         const a = doc?.extractions[Number(idx)] ? amountAt(doc.extractions[Number(idx)].data, field) : null;
-        if (doc && a) {
-          if (answer !== 'yes') {
-            a.amount = (Number.parseInt(answer, 10) / 100).toFixed(2);
+        if (doc && a && value !== null) {
+          if (value !== 'yes') {
+            a.amount = (Number.parseInt(value, 10) / 100).toFixed(2);
             a.quote = 'Corrected by you';
           }
           doc.fieldChecks[`${idx}:${field}`] = 'verified';
         }
       } else {
         const q = d.questions.find((x) => x.id === questionId);
-        const value = q ? normalAnswer(q.kind, answer) : null; // the screen checks too; this is the trust boundary
+        const value = q ? normalAnswer(q, answer) : null; // the screen checks too; this is the trust boundary
         if (q && value !== null) Object.assign(q, { answer: value, answeredAt: this.deps.now() });
       }
       reconcile(d);
@@ -345,19 +406,38 @@ export class TidyService {
         );
       },
       list_documents: async () => this.view().documents,
+      find_facts: async (i) => {
+        const words = String(i.query ?? '')
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean);
+        const found = editableFacts(deriveFacts(this.deps.store.get())).filter((x) =>
+          words.every((w) => x.label.toLowerCase().includes(w)),
+        );
+        return { facts: found.slice(0, 60), total: found.length };
+      },
       search_tax_law: async (i) => this.deps.law.search(String(i.query)),
       propose_change: async (i) => {
+        // The AI's input is untrusted (a document can steer it): only an existing fact chat may change, with a value
+        // of that fact's type, becomes a card. The card words the change itself, from the facts.
+        const facts = deriveFacts(this.deps.store.get());
+        const sectionId = SECTION_IDS.find((s) => s === i.section_id);
+        if (!sectionId) return { error: `section_id must be one of: ${SECTION_IDS.join(', ')}.` };
+        const problem = overrideProblem(facts, i.path, i.value);
+        if (problem) return { error: `${problem} Nothing was shown to the user.` };
+        const path = i.path as string[];
         const id = this.deps.newId();
         await this.deps.store.update((d) => {
           d.proposals.push({
             id,
-            sectionId: i.section_id as SectionId,
-            description: String(i.description),
-            path: i.path as string[],
+            sectionId,
+            description: String(i.description ?? '').slice(0, 300),
+            path: [...path],
             value: i.value,
-            reason: String(i.reason),
+            reason: String(i.reason ?? '').slice(0, 1_000),
             status: 'pending',
             createdAt: this.deps.now(),
+            change: changeText(facts, path, i.value),
           });
         });
         return { proposal_id: id, status: 'Shown to the user with Accept and Reject buttons. Nothing has changed yet.' };
@@ -452,19 +532,31 @@ export class TidyService {
       await mark('rejected');
       return { ok: true };
     }
-    const override = {
+    const facts = deriveFacts(this.deps.store.get());
+    if (overrideProblem(facts, p.path, p.value) !== null) {
+      await mark('rejected');
+      return { ok: false, error: 'That change no longer fits your return, so it wasn’t applied.' };
+    }
+    const override: Override = {
       id: this.deps.newId(),
-      path: p.path,
+      path: [...p.path],
       value: p.value,
       reason: p.reason,
       createdAt: this.deps.now(),
-      createdBy: 'ai_proposal' as const,
+      createdBy: 'ai_proposal',
+      sectionId: p.sectionId,
+      proposalId: p.id,
+      change: changeText(facts, p.path, p.value),
     };
+    // Work the return out with the change first: one the math can't handle is refused, not saved.
     try {
-      applyOverrides(deriveFacts(this.deps.store.get()), [override]); // throws if the path no longer exists
-    } catch {
+      const changed = applyOverrides(facts, [override]).facts;
+      const fed = computeFederal(changed);
+      computeStateReturn(changed, fed);
+    } catch (e) {
+      this.deps.log('Trying a suggested change', e);
       await mark('rejected');
-      return { ok: false, error: 'That change no longer fits your return, so it wasn’t applied.' };
+      return { ok: false, error: 'Tidy couldn’t work out your return with that change, so it wasn’t applied.' };
     }
     await this.deps.store.update((d) => {
       d.overrides.push(override);
@@ -474,7 +566,80 @@ export class TidyService {
     return { ok: true };
   }
 
+  /** Takes back a change the user accepted. Its suggestion card then says it was undone. */
+  async undoOverride(id: string): Promise<Result> {
+    const o = this.deps.store.get().overrides.find((x) => x.id === id);
+    if (!o) return { ok: false, error: 'That change was already undone.' };
+    await this.deps.store.update((d) => {
+      d.overrides = d.overrides.filter((x) => x.id !== id);
+      const p = d.proposals.find((x) => x.id === o.proposalId);
+      if (p && p.status === 'accepted') p.status = 'undone';
+      reconcile(d);
+    });
+    return { ok: true };
+  }
+
   // ---------- export ----------
+
+  /** Saves the return and its documents in one file locked with a passphrase, for another Mac or a lost Keychain. */
+  async exportBackup(passphrase: string): Promise<ExportResult> {
+    if (passphrase.length < MIN_PASSPHRASE) return { ok: false, error: `Use a passphrase of at least ${MIN_PASSPHRASE} characters.` };
+    const file = await this.deps.savePath(`Tidy backup ${this.deps.now().slice(0, 10)}.tidybackup`);
+    if (!file) return { ok: false, error: 'Cancelled.' };
+    try {
+      const state = this.deps.store.get();
+      const documents: Record<string, string> = {};
+      for (const d of state.documents) {
+        try {
+          documents[d.id] = (await this.deps.store.getDocument(d.id)).toString('base64');
+        } catch (e) {
+          this.deps.log(`Backing up document ${d.id}`, e); // its pages can't be shown after a restore, the rest still works
+        }
+      }
+      const payload: BackupPayload = { format: 'tidy-backup', version: 1, taxYear: 2025, exportedAt: this.deps.now(), state, documents };
+      await this.deps.writeFile(file, await sealWithPassphrase(passphrase, Buffer.from(JSON.stringify(payload), 'utf8')));
+    } catch (e) {
+      this.deps.log('Saving a backup', e);
+      return { ok: false, error: 'Tidy couldn’t save the backup, so nothing was written. Try again, or choose another folder.' };
+    }
+    return { ok: true, path: file };
+  }
+
+  /** Replaces the return with one from a backup file (the current one is kept in Tidy's own backups first). */
+  async restoreBackup(passphrase: string): Promise<Result> {
+    const file = await this.deps.pickBackupFile?.();
+    if (!file || !this.deps.readFile) return { ok: false, error: 'Cancelled.' };
+    let payload: BackupPayload;
+    try {
+      payload = JSON.parse((await openWithPassphrase(passphrase, await this.deps.readFile(file))).toString('utf8')) as BackupPayload;
+    } catch (e) {
+      if (e instanceof WrongPassphraseError) return { ok: false, error: e.message };
+      this.deps.log('Opening a backup', e);
+      return { ok: false, error: 'Tidy couldn’t read that file. Choose a .tidybackup file saved by Tidy.' };
+    }
+    const st = payload?.state;
+    if (
+      payload?.format !== 'tidy-backup' ||
+      payload.version !== 1 ||
+      !st ||
+      !Array.isArray(st.documents) ||
+      !Array.isArray(st.questions) ||
+      !st.documents.every((d) => typeof d?.id === 'string' && DOCUMENT_ID.test(d.id))
+    )
+      return { ok: false, error: 'That backup is from a different version of Tidy or isn’t complete, so nothing was changed.' };
+    const docs = new Map<string, Buffer>();
+    for (const d of st.documents) {
+      const b64 = payload.documents?.[d.id];
+      if (typeof b64 === 'string') docs.set(d.id, Buffer.from(b64, 'base64'));
+    }
+    try {
+      await this.deps.store.replaceAll(st, docs);
+    } catch (e) {
+      this.deps.log('Restoring a backup', e);
+      return { ok: false, error: 'Tidy couldn’t restore that backup. Your return wasn’t changed.' };
+    }
+    return { ok: true };
+  }
 
   async exportPackage(): Promise<ExportResult> {
     if (!this.view().canExport) return { ok: false, error: 'Approve every section and fix anything marked “Must fix” first.' };

@@ -5,6 +5,7 @@ import { FED_2026 } from '../params/fed2026';
 import type { TaxFacts } from '../../shared/facts';
 import { scheduleA } from './scheduleA';
 import { scheduleB } from './scheduleB';
+import { otherSchedule1Income } from './schedule1';
 import { computeBusinessAndSchedule1, type BusinessResult } from './business';
 import { computeScheduleE, type ScheduleEOutput } from './scheduleE';
 import {
@@ -14,14 +15,14 @@ import {
   type Form8949Sheet,
   type ScheduleDCheckboxes,
 } from './scheduleD';
-import { computeForm8995, type Form8995Result } from './form8995';
+import { apportion, computeForm8995, type Form8995Result, type QbiBusiness } from './form8995';
 import { qdcgWorksheet } from './qdcg';
 import { taxOnOrdinaryIncome } from './taxComputation';
 import { form8959 } from './form8959';
 import { form8960 } from './form8960';
 import { computeForm2210, type Form2210Result } from './form2210';
-import { schedule3 } from './schedule3';
-import { amtScreen } from './amtScreen';
+import { foreignTaxCredit, schedule3 } from './schedule3';
+import { computeForm6251, type Form6251Result } from './form6251';
 import { is65OrOlder, retirementDistributions, schedule1A, socialSecurityWorksheet } from './retirement';
 
 export type FederalFormId =
@@ -40,8 +41,11 @@ export type FederalFormId =
   | 'schE'
   | 'schSE'
   | 'f4797'
+  | 'f6251'
   | 'f8995'
   | 'f8995a'
+  | 'f8995aSchA'
+  | 'f8995aSchC'
   | 'f8959'
   | 'f8960'
   | 'f8582'
@@ -56,13 +60,16 @@ export interface FederalResult {
   taxableIncome: Cents;
   totalTax: Cents;
   totalPayments: Cents;
+  /** Form 1040 line 35a (after the estimated tax penalty and any amount applied to next year). */
   refund: Cents;
+  /** Form 1040 line 36. */
+  appliedToNextYear: Cents;
   amountOwed: Cents;
   itemizing: boolean;
   /** Forms that must be printed/filed, in IRS attachment order. */
   forms: FederalFormId[];
-  /** True when the AMT screen can't rule out alternative minimum tax (Form 6251 isn't supported yet). */
-  mayOweAmt: boolean;
+  /** Form 6251 (alternative minimum tax). */
+  amt: Form6251Result;
   /** Schedule B Parts I and II rows. */
   payers: { interest: { name: string; amount: Cents }[]; dividends: { name: string; amount: Cents }[] };
   /** Form 1040 line 4c checkboxes (Rollover, QCD). */
@@ -91,6 +98,34 @@ export interface FederalResult {
   form2210: Form2210Result;
 }
 
+/** The qualified trades or businesses for Form 8995 / 8995-A: the Schedule C business, then K-1 activities and rentals.
+ *  The deductible part of SE tax reduces each source's QBI in proportion to its positive SE income. */
+export function qbiBusinesses(f: TaxFacts, biz: BusinessResult, schE: ScheduleEOutput): QbiBusiness[] {
+  const out: QbiBusiness[] = [];
+  const b = biz.activeBusiness;
+  if (b && biz.needsScheduleC) {
+    const owner = b.owner === 'spouse' && f.spouse ? f.spouse : f.taxpayer;
+    out.push({
+      name: b.businessName || b.principalBusiness || `${owner.firstName} ${owner.lastName}`.trim(),
+      tin: (b.ein ?? '').replace(/\D/g, '') || owner.ssn,
+      isSstb: b.isSstb ?? true,
+      qbi: biz.netQbi,
+      w2Wages: roundToDollar(b.expenses.wages ?? 0),
+      ubia: roundToDollar(b.ubiaOfQualifiedProperty ?? 0),
+      active: b.materialParticipation ?? true,
+      sourceId: b.id,
+    });
+  }
+  const k1s = f.k1s ?? [];
+  const shares = apportion(
+    biz.seTaxForK1s,
+    k1s.map((k) => Math.max(0, roundToDollar(k.selfEmploymentEarnings ?? 0))),
+  );
+  const seShare = new Map(k1s.map((k, n) => [k.id, shares[n]!]));
+  for (const e of schE.qbiEntries) out.push({ ...e, qbi: e.qbi - (e.sourceId ? (seShare.get(e.sourceId) ?? 0) : 0) });
+  return out;
+}
+
 /** Form 1040 (2025 / 2026) for the Phase-1..A7 scope. Pure: same facts in → same lines out. */
 export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? FED_2026 : FED_2025): FederalResult {
   const l = new Ledger();
@@ -114,7 +149,22 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
   const ret = retirementDistributions(f, p, l);
   const L4b = ret.line4b;
   const L5b = ret.line5b;
-  const biz = computeBusinessAndSchedule1(f, p, l);
+  const biz0 = computeBusinessAndSchedule1(f, p, l);
+  // Schedule 1 lines 1 and 7 (taxable state refund, unemployment) join line 10 with the business lines.
+  const s1Other = otherSchedule1Income(f, p, l);
+  const biz =
+    s1Other.line1 + s1Other.line7 === 0
+      ? biz0
+      : {
+          ...biz0,
+          needsSchedule1: true,
+          schedule1AdditionalIncome: l.set(
+            'sch1.10',
+            biz0.schedule1AdditionalIncome + s1Other.line1 + s1Other.line7,
+            'Additional income',
+            'Lines 1 through 7 and 9',
+          ),
+        };
 
   // Compute preliminary Schedule D without S-corp excess distribution gain first to get MAGI before passive loss for Form 8582 line 6
   const prelimScorpGain = sumCents(
@@ -168,14 +218,27 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
       : p.additionalStandardDeduction65OrBlind.marriedOrQss;
   const standard = p.standardDeduction[f.filingStatus] + extraBoxes * extraPerBox;
   const rawItemized = scheduleA(f, L11b, p, l, biz.homeOfficeScheduleAReduction);
-  const seniorDed13b = schedule1A(f, L11b, p, l);
+  const s1a = schedule1A(f, L11b, p, l);
+  const seniorDed13b = s1a.total; // all of Schedule 1-A line 38: tips, overtime, car loan interest and seniors
 
-  // 2026+ OBBBA §70111: 2/37 reduction on itemized deductions for taxable income in the 37% bracket (capping tax benefit at 35%)
+  // 2026+ §68 as amended by OBBBA §70111: itemized deductions are reduced by 2/37 of the lesser of the itemized
+  // deductions, or taxable income figured without this rule and *increased by* the itemized deductions, over the start
+  // of the 37% bracket. That income is line 11b less the line 13b deductions and the QBI deduction (figured with the
+  // full itemized deductions, in a scratch ledger).
   let itemized = rawItemized;
   if (p.itemizedTopBracketLimit.enabled && rawItemized > 0) {
     const start37 = p.itemizedTopBracketLimit.bracket37Start[f.filingStatus];
-    const tiBeforeItemizedLimit = Math.max(0, L11b - rawItemized - seniorDed13b);
-    const excessOver37 = Math.max(0, tiBeforeItemizedLimit - start37);
+    const qbiWithoutLimit = computeForm8995(
+      f,
+      {
+        taxableIncomeBeforeQbi: Math.max(0, L11b - rawItemized - seniorDed13b),
+        netCapitalGainAndQualifiedDividends: L3a + d.netCapitalGain,
+        businesses: qbiBusinesses(f, biz, schE),
+      },
+      p,
+      new Ledger(),
+    ).deduction;
+    const excessOver37 = Math.max(0, L11b - seniorDed13b - qbiWithoutLimit - start37);
     if (excessOver37 > 0) {
       const reduction = roundToDollar(Math.round((Math.min(rawItemized, excessOver37) * 2) / 37));
       l.set('schA.17.limit37', reduction, '37% bracket itemized deduction reduction (OBBBA §70111, 2/37 rule)');
@@ -197,16 +260,12 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
     seniorDed13b + (!itemizing ? nonItemizerCharity : 0),
     'Additional deductions (Schedule 1-A / non-itemizer charitable)',
   );
-  const k1QbiSum = sumCents(schE.qbiEntries.map((e) => e.qbi));
-  const k1W2WagesSum = sumCents(schE.qbiEntries.map((e) => e.w2Wages));
   const qbi = computeForm8995(
     f,
     {
       taxableIncomeBeforeQbi: Math.max(0, L11b - L12e - L13b),
       netCapitalGainAndQualifiedDividends: L3a + d.netCapitalGain,
-      tradeOrBusinessQbi: biz.netQbi + k1QbiSum,
-      isSstb: biz.activeBusiness ? (biz.activeBusiness.isSstb ?? true) : schE.qbiEntries.some((e) => e.isSstb),
-      businessW2Wages: (biz.activeBusiness?.expenses.wages ?? 0) + k1W2WagesSum,
+      businesses: qbiBusinesses(f, biz, schE),
     },
     p,
     l,
@@ -236,11 +295,45 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
       ? qdcgWorksheet({ taxableIncome: L15, qualifiedDividends: L3a, netCapitalGainForWorksheet: d.netCapitalGain }, f.filingStatus, p, l)
       : taxOnOrdinaryIncome(L15, f.filingStatus, p);
   const L16 = l.set('f1040.16', tax, 'Income tax');
+  foreignTaxCredit(f, L16, l); // Schedule 3 line 1, needed by Form 6251 line 8
 
-  const { mayOweAmt } = amtScreen(f, itemizing, p, l);
+  const passiveK1s = (f.k1s ?? []).filter((k) => !k.isMaterialParticipation);
+  const amt = computeForm6251(
+    f,
+    {
+      itemizing,
+      schedule1A: s1a.senior, // only line 37 is added back for the AMT (Form 6251 line 1a)
+      stateRefundIncome: l.get('sch1.1'),
+      passiveAdjustments: sumCents(passiveK1s.map((k) => (k.amtDepreciationAdjustment ?? 0) + (k.amtGainLossAdjustment ?? 0))),
+      passiveLossLimited: schE.passiveLossCarryoverTo2026 > 0,
+      worksheet: usesSdtw ? 'sdtw' : usesQdcg ? 'qdcg' : 'none',
+      foreignTaxCredit: l.get('sch3.1'),
+    },
+    p,
+    l,
+  );
   const medicare = form8959(f, p, l, biz.seNetEarnings);
-  const niit = form8960({ taxableInterest: L2b, ordinaryDividends: L3b, netGain: L7a, magi: L11b }, f.filingStatus, p, l);
-  const S2_2 = l.set('sch2.2', 0, 'Alternative minimum tax (Form 6251)');
+  const k1Mp1231 = sumCents((f.k1s ?? []).filter((k) => k.isMaterialParticipation).map((k) => roundToDollar(k.netSection1231Gain)));
+  const business4797 = biz.form4797.schedule1Line4 + biz.form4797.scheduleDLine11 - schE.k1NetSection1231Gain;
+  const niit = form8960(
+    {
+      taxableInterest: L2b,
+      ordinaryDividends: L3b,
+      nonqualifiedAnnuities: sumCents(
+        (f.f1099R ?? []).filter((x) => x.box7Codes.includes('D')).map((x) => roundToDollar(x.box2aTaxableAmount)),
+      ),
+      scheduleCAndE: l.get('sch1.3') + (schE.needsScheduleE ? schE.netScheduleEIncome : 0),
+      nonInvestmentBusinessIncome: l.get('sch1.3') + schE.nonInvestmentIncome,
+      dispositions: L7a + l.get('sch1.4'),
+      nonInvestmentDispositions: (biz.activeBusiness ? business4797 : 0) + k1Mp1231,
+      allowedStateIncomeTax: itemizing ? l.get('schA.5a.allowed') : 0,
+      magi: L11b,
+    },
+    f.filingStatus,
+    p,
+    l,
+  );
+  const S2_2 = l.set('sch2.2', amt.amt, 'Alternative minimum tax (Form 6251)');
   const S2_3 = l.set('sch2.3', S2_2, 'Total additions to tax', 'Lines 1z + 2');
   const S2_4 = l.set('sch2.4', biz.seTax, 'Self-employment tax (Schedule SE)');
   const S2_11 = l.set('sch2.11', medicare.tax, 'Additional Medicare Tax (Form 8959)');
@@ -268,6 +361,7 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
       ...(f.f1099R ?? []).map((x) => x.box4FedWithheld),
       ...(f.f1099Nec ?? []).map((x) => x.box4FedWithheld),
       ...(f.ssa1099 ?? []).map((x) => x.box6FedWithheld),
+      ...(f.f1099G ?? []).map((x) => x.box4FedWithheld),
     ]),
     'Federal tax withheld (1099s)',
   );
@@ -282,7 +376,6 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
   const L32 = l.set('f1040.32', L31, 'Other payments and refundable credits');
   const L33 = l.set('f1040.33', L25d + L26 + L32, 'Total payments', 'Lines 25d + 26 + 32');
   const L34 = l.set('f1040.34', Math.max(0, L33 - L24), 'Overpaid', 'Line 33 − line 24');
-  l.set('f1040.35a', L34, 'Refund');
   const f2210 = computeForm2210(
     f,
     {
@@ -294,12 +387,23 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
     l,
   );
   const L38 = l.set('f1040.38', f2210.penalty, 'Estimated tax penalty (Form 2210)');
-  const L37 = l.set('f1040.37', Math.max(0, L24 - L33) + L38, 'Amount you owe', 'Line 24 − line 33 + line 38');
+  // 2025 Form 1040 instructions, line 38: the penalty comes out of an overpayment first. Lines 35a, 36 and 38 equal
+  // line 34; a penalty larger than the overpayment leaves 35a and 36 at zero and the difference owed on line 37.
+  const available = Math.max(0, L34 - L38);
+  const want36 = f.payments.applyToNextYear === 'all' ? available : roundToDollar(Math.max(0, f.payments.applyToNextYear ?? 0));
+  const L36 = l.set('f1040.36', Math.min(available, want36), `Applied to your ${f.taxYear + 1} estimated tax`);
+  const L35a = l.set('f1040.35a', available - L36, 'Refund', 'Line 34 − line 36 − line 38');
+  const L37 = l.set(
+    'f1040.37',
+    L34 > 0 ? Math.max(0, L38 - L34) : Math.max(0, L24 - L33) + L38,
+    'Amount you owe',
+    L34 > 0 ? 'Line 38 − line 34' : 'Line 24 − line 33 + line 38',
+  );
 
   const foreign = f.foreignAccounts.hasForeignAccount === true || f.foreignAccounts.foreignTrust === true;
   // Attachment Sequence No. order:
   // 1040, Sch 1 (01), Sch 1-A (01A), Sch 2 (02), Sch 3 (03), 2210 (06), Sch A (07), Sch B (08), Sch C (09), Sch D (12), 8949 (12A),
-  // Sch E (13), Sch SE (17), 4797 (27), 8995 (55), 8995-A (55A), 8959 (71), 8960 (72), 8582 (858), 8829 (176), 4562 (179), 7203 (203), 7206 (206).
+  // Sch E (13), Sch SE (17), 4797 (27), 6251 (32), 8995 (55), 8995-A (55A) with its Schedules A (55B) and C (55D), 8959 (71), 8960 (72), 8582 (858), 8829 (176), 4562 (179), 7203 (203), 7206 (206).
   const forms: FederalFormId[] = ['f1040'];
   if (biz.needsSchedule1 || schE.needsScheduleE) forms.push('sch1');
   if (L13b > 0) forms.push('sch1A');
@@ -314,8 +418,11 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
   if (schE.needsScheduleE) forms.push('schE');
   if (biz.needsScheduleSE) forms.push('schSE');
   if (biz.needsForm4797) forms.push('f4797');
+  if (amt.needsForm6251) forms.push('f6251');
   if (qbi.form === 'f8995') forms.push('f8995');
   if (qbi.form === 'f8995a') forms.push('f8995a');
+  if (qbi.form === 'f8995a' && qbi.needsScheduleA) forms.push('f8995aSchA');
+  if (qbi.form === 'f8995a' && qbi.needsScheduleC) forms.push('f8995aSchC');
   if (medicare.tax > 0 || medicare.withholding > 0) forms.push('f8959');
   if (niit > 0) forms.push('f8960');
   if (schE.needsForm8582) forms.push('f8582');
@@ -339,11 +446,12 @@ export function computeFederal(f: TaxFacts, p: FedParams = f.taxYear === 2026 ? 
     taxableIncome: L15,
     totalTax: L24,
     totalPayments: L33,
-    refund: L34,
+    refund: L35a,
+    appliedToNextYear: L36,
     amountOwed: L37,
     itemizing,
     forms,
-    mayOweAmt,
+    amt,
     payers: { interest: b.interestPayers, dividends: b.dividendPayers },
     line4c: ret.line4c,
     line5c: ret.line5c,

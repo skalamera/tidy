@@ -306,8 +306,9 @@ describe('Milestone A4: Schedule E (rentals & K-1s), Form 4562, Form 8582, Form 
     const mdSub = computeMaryland(fSub, fedSub);
     expect(mdSub.needsForm500DM).toBe(true);
     expect(mdSub.needsForm502SU).toBe(true);
-    expect(fedSub.ledger.get('md500dm.1.c3')).toBe(-dollars(7_000));
-    expect(fedSub.ledger.get('md502su.bb')).toBe(dollars(7_000));
-    expect(fedSub.ledger.get('md502.13')).toBe(dollars(7_000));
+    expect(mdSub.ledger.get('md500dm.1.c3')).toBe(-dollars(7_000));
+    expect(mdSub.ledger.get('md502su.bb')).toBe(dollars(7_000));
+    expect(mdSub.ledger.get('md502.13')).toBe(dollars(7_000));
+    expect(fedSub.ledger.has('md502.13')).toBe(false); // computeMd leaves the federal result alone
   });
 });

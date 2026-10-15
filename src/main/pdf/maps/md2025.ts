@@ -91,6 +91,8 @@ export const MD502_2025: FormMap = {
     'md502.47.cents': 'Text Box 79',
     'md502.48': 'Text Box 80',
     'md502.48.cents': 'Text Box 81',
+    'md502.49': 'Text Box 82',
+    'md502.49.cents': 'Text Box 83',
     'md502.50': 'Text Box 84',
     'md502.50.cents': 'Text Box 85',
     'md502.51.line18': 'Text Box 86',

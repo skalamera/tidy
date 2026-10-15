@@ -1,7 +1,8 @@
-import { ArrowUp, Check, History, SquarePen, X } from 'lucide-react';
+import { ArrowUp, Check, History, SquarePen, Undo2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { AppView } from '../../../core/view';
-import type { Proposal, SectionId } from '../../../shared/state';
+import type { AppView, ProposalView } from '../../../core/view';
+import type { SectionId } from '../../../shared/state';
+import { ChangeLine } from './ChangeLine';
 import { tidy } from '../api';
 import { Logo } from './Brand';
 import { ChatHistory } from './ChatHistory';
@@ -16,17 +17,22 @@ const STARTERS: Partial<Record<SectionId, string[]>> = {
 };
 const DEFAULT_STARTERS = ['What happens next?', 'Explain this step in plain English'];
 
-function ProposalCard({ p, onToast }: { p: Proposal; onToast: (t: string) => void }) {
+/** A suggestion from chat. The change itself is worded by Tidy from your return, not by the AI. */
+function ProposalCard({ p, onToast }: { p: ProposalView; onToast: (t: string) => void }) {
   const decide = async (accept: boolean) => {
     const r = await tidy().decideProposal(p.id, accept);
+    if (!r.ok) onToast(r.error);
+  };
+  const undo = async (id: string) => {
+    const r = await tidy().undoOverride(id);
     if (!r.ok) onToast(r.error);
   };
   return (
     <div className={`proposal ${p.status}`}>
       <p className="eyebrow">Suggested change</p>
-      <strong>{p.description}</strong>
-      <p className="muted">{p.reason}</p>
-      {p.status === 'pending' ? (
+      <ChangeLine change={p.change} />
+      {p.reason && <p className="muted">Why: {p.reason}</p>}
+      {p.status === 'pending' && p.fits && (
         <div className="choices inline">
           <button className="btn primary small" onClick={() => void decide(true)}>
             <Check size={14} aria-hidden /> Make this change
@@ -35,9 +41,20 @@ function ProposalCard({ p, onToast }: { p: Proposal; onToast: (t: string) => voi
             No thanks
           </button>
         </div>
-      ) : (
-        <p className="muted">{p.status === 'accepted' ? 'Changed.' : 'Not changed.'}</p>
       )}
+      {p.status === 'pending' && !p.fits && <p className="muted">This no longer fits your return, so it can’t be made.</p>}
+      {p.status === 'accepted' && (
+        <div className="choices inline">
+          <p className="muted">Changed.</p>
+          {p.overrideId && (
+            <button className="btn ghost small" onClick={() => void undo(p.overrideId!)}>
+              <Undo2 size={14} aria-hidden /> Undo
+            </button>
+          )}
+        </div>
+      )}
+      {p.status === 'rejected' && <p className="muted">Not changed.</p>}
+      {p.status === 'undone' && <p className="muted">Changed, then undone.</p>}
     </div>
   );
 }

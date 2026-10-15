@@ -32,7 +32,11 @@ const api: TidyApi = {
   deleteChat: (id) => ipcRenderer.invoke(IPC.deleteChat, id),
   searchChats: (query) => ipcRenderer.invoke(IPC.searchChats, query),
   decideProposal: (id, accept) => ipcRenderer.invoke(IPC.decideProposal, id, accept),
+  undoOverride: (id) => ipcRenderer.invoke(IPC.undoOverride, id),
   exportPackage: () => ipcRenderer.invoke(IPC.exportPackage),
+  exportBackup: (passphrase) => ipcRenderer.invoke(IPC.exportBackup, passphrase),
+  restoreBackup: (passphrase) => ipcRenderer.invoke(IPC.restoreBackup, passphrase),
+  onBackupPrompt: (cb) => on(IPC.backupPrompt, cb),
 };
 
 contextBridge.exposeInMainWorld('tidy', api);

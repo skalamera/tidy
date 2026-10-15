@@ -118,7 +118,8 @@ export function mdValues(id: MdFormId, f: TaxFacts, md: MdResult): FillValues {
   codes.forEach((c, idx) => {
     text[`md502.13.code${idx + 1}`] = c;
   });
-  for (const line of ['41', '43', '46', '47', '48', '50', '51', '52']) text[`md502.${line}.cents`] = cents(md.ledger.get(`md502.${line}`));
+  for (const line of ['41', '43', '46', '47', '48', '49', '50', '51', '52'])
+    text[`md502.${line}.cents`] = cents(md.ledger.get(`md502.${line}`));
   const checks = ['exemptYou'];
   if (md.needsForm502UP && md.ledger.get('md502.51') > 0) {
     checks.push('attaching502UP');

@@ -51,10 +51,10 @@ describe('buildView', () => {
   });
 
   it('raises a blocker for unsupported documents', () => {
-    const s = stateWith({ documents: [doc('misc', [], { status: 'unsupported', docType: 'f1099_misc' })] });
+    const s = stateWith({ documents: [doc('stmt', [], { status: 'unsupported', docType: 'brokerage_statement' })] });
     const v = buildView(s, { aiProvider: 'gemini' });
     expect(v.flags[0].severity).toBe('blocker');
-    expect(v.flags[0].title).toBe('Tidy can’t prepare 1099-MISC income yet');
+    expect(v.flags[0].title).toBe('Tidy can’t prepare brokerage statements yet');
   });
 
   it('uses only a 2024 return as last year’s, and says why another year’s is set aside', () => {

@@ -6,6 +6,7 @@ import type { SectionId } from '../../../shared/state';
 import { tidy } from '../api';
 import { answerText, STATUS_LABEL } from '../labels';
 import { CardView } from './CardView';
+import { ChangeList } from './ChangeList';
 import { Documents } from './Documents';
 import { FlagList } from './FlagList';
 import { Icon } from './Icon';
@@ -17,11 +18,13 @@ interface Props {
   onOpenDoc: (docId: string, page: number) => void;
   onApproved: (id: SectionId) => void;
   onExport: () => void;
+  /** Opens the backup dialog (File > Back Up My Return does too). */
+  onBackup?: () => void;
   onToast: (text: string) => void;
 }
 
 /** One step of the return: what we found, what we need to ask, and the approve button. */
-export function SectionPage({ view, sectionId, onOpenDoc, onApproved, onExport, onToast }: Props) {
+export function SectionPage({ view, sectionId, onOpenDoc, onApproved, onExport, onBackup, onToast }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const section = view.sections.find((s) => s.id === sectionId)!;
@@ -57,6 +60,8 @@ export function SectionPage({ view, sectionId, onOpenDoc, onApproved, onExport, 
         </header>
 
         <FlagList flags={flags} />
+
+        <ChangeList changes={view.overrides.filter((o) => o.sectionId === sectionId)} onToast={onToast} />
 
         {open.length > 0 && (
           <div className="questions">
@@ -106,6 +111,14 @@ export function SectionPage({ view, sectionId, onOpenDoc, onApproved, onExport, 
           <button className="btn primary big" disabled={!view.canExport} onClick={onExport}>
             <Download size={18} aria-hidden /> Download my return (PDF)
           </button>
+          {onBackup && (
+            <p className="file-backup">
+              Keep a copy of everything in Tidy, locked with a passphrase:{' '}
+              <button className="btn ghost small" onClick={onBackup}>
+                Back up my return
+              </button>
+            </p>
+          )}
         </footer>
       ) : (
         <footer className="approve-bar">

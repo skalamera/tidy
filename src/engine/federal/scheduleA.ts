@@ -1,7 +1,8 @@
-import { rateToDollar, roundToDollar, sumCents, type Cents } from '../money';
+import { mulDivToDollar, rateToDollar, roundToDollar, sumCents, type Cents } from '../money';
 import type { Ledger } from '../ledger';
 import type { FedParams } from '../params/fed2025';
 import type { FilingStatus, TaxFacts } from '../../shared/facts';
+import { ageAtEndOf2025, ltcLimitForAge } from './business';
 
 /** State and Local Tax Deduction Worksheet (2025 Schedule A instructions) → Schedule A line 5e. */
 export function saltDeduction(line5d: Cents, magi: Cents, status: FilingStatus, p: FedParams): Cents {
@@ -27,7 +28,18 @@ export function scheduleA(
   homeOfficeReduction: { mortgageInterest: Cents; realEstateTax: Cents } = { mortgageInterest: 0, realEstateTax: 0 },
 ): Cents {
   const it = f.itemized;
-  const L1 = l.set('schA.1', it.medicalExpenses, 'Medical and dental expenses');
+  // Long-term care premiums count only up to each person's age limit (the same limits as Form 7206 line 2).
+  const ltc = it.longTermCarePremiums;
+  const ltcAllowed = ltc
+    ? Math.min(roundToDollar(ltc.taxpayer), ltcLimitForAge(ageAtEndOf2025(f.taxpayer.dateOfBirth), p)) +
+      (f.spouse ? Math.min(roundToDollar(ltc.spouse), ltcLimitForAge(ageAtEndOf2025(f.spouse.dateOfBirth), p)) : 0)
+    : 0;
+  const L1 = l.set(
+    'schA.1',
+    roundToDollar(it.medicalExpenses) + ltcAllowed,
+    'Medical and dental expenses',
+    ltcAllowed > 0 ? 'Medical costs + long-term care premiums up to the age limits' : undefined,
+  );
   const L2 = l.set('schA.2', agi, 'Adjusted gross income');
   const L3 = l.set('schA.3', rateToDollar(L2, p.medicalFloorRate), '7.5% of AGI');
   const L4 = l.set('schA.4', Math.max(0, L1 - L3), 'Deductible medical');
@@ -36,6 +48,7 @@ export function scheduleA(
     ...f.w2s.flatMap((w) => [...w.stateLines.map((s) => s.stateTax), ...w.localLines.map((x) => x.localTax)]),
     ...(f.f1099R ?? []).flatMap((r) => r.stateLines.map((s) => s.stateTax)),
     ...(f.f1099Nec ?? []).flatMap((n) => n.stateLines.map((s) => s.stateTax)),
+    ...(f.f1099G ?? []).flatMap((g) => g.stateLines.map((s) => s.stateTax)),
   ]);
   const paidOther = sumCents(it.stateIncomeTaxPayments.map((x) => x.amount));
   const L5a = l.set('schA.5a', withheldStateLocal + paidOther, 'State and local income taxes');
@@ -43,6 +56,13 @@ export function scheduleA(
   const L5c = l.set('schA.5c', it.personalPropertyTax, 'Personal property taxes');
   const L5d = l.set('schA.5d', L5a + L5b + L5c, 'Total state and local taxes');
   const L5e = l.set('schA.5e', saltDeduction(L5d, agi, f.filingStatus, p), 'State and local taxes you can deduct (SALT cap)');
+  // Income tax share of the capped SALT deduction, for Form 8960 line 9b.
+  l.set(
+    'schA.5a.allowed',
+    L5d > 0 ? mulDivToDollar(L5e, L5a, L5d) : 0,
+    'State and local income tax within the SALT deduction',
+    'Line 5e × line 5a ÷ line 5d',
+  );
   const L7 = l.set('schA.7', L5e, 'Total taxes');
 
   const L8a = l.set(

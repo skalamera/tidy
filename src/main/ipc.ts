@@ -55,7 +55,11 @@ export function registerIpc(
     service.searchChats(query),
   );
   handle(IPC.decideProposal, z.tuple([Id, z.boolean()]), ([id, accept]) => service.decideProposal(id, accept));
+  handle(IPC.undoOverride, z.tuple([Id]), ([id]) => service.undoOverride(id));
   handle(IPC.exportPackage, z.tuple([]), () => service.exportPackage());
+  const Passphrase = z.string().max(1_000);
+  handle(IPC.exportBackup, z.tuple([Passphrase]), ([p]) => service.exportBackup(p));
+  handle(IPC.restoreBackup, z.tuple([Passphrase]), ([p]) => service.restoreBackup(p));
 
   ipcMain.on(IPC.reportError, (e, raw) => {
     guard(e);

@@ -529,6 +529,35 @@ a {
   align-items: center;
   margin-top: 8px;
 }
+.lines-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  align-items: center;
+  margin-top: 8px;
+}
+.lines-form label {
+  display: contents;
+  font-size: 14px;
+}
+.lines-form .money-input input {
+  width: 140px;
+  text-align: right;
+}
+.lines-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+}
+.lines-total {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.lines-form .field-error {
+  grid-column: 1 / -1;
+}
 .fields-form {
   display: flex;
   flex-wrap: wrap;
@@ -928,6 +957,54 @@ a {
 .proposal.accepted {
   border-color: var(--accent);
 }
+.change-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.change-values {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.change-before {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.change-after {
+  font-weight: 600;
+}
+.changes {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 20px;
+  box-shadow: var(--shadow);
+}
+.changes h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.changes ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+.changes li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.changes li.set-aside .change-after {
+  text-decoration: line-through;
+}
+.changes .muted {
+  margin: 2px 0 0;
+}
 .chat-input {
   display: flex;
   flex-direction: column;
@@ -1279,4 +1356,41 @@ a {
   border-radius: 12px;
   background: var(--sun-soft);
   font-size: 14px;
+}
+
+/* Backup dialog */
+.backup-dialog {
+  background: var(--surface);
+  border-radius: 18px;
+  width: min(480px, 92vw);
+  padding: 24px;
+  display: grid;
+  gap: 12px;
+}
+.backup-dialog h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.backup-dialog label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.backup-dialog input {
+  font: inherit;
+  font-weight: 400;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.backup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.file-backup {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
 }

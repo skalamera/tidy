@@ -91,6 +91,8 @@ export interface Form1099R {
   payerEin: string | null;
   box1GrossDistribution: Cents;
   box2aTaxableAmount: Cents;
+  /** Box 2a was left blank (not printed as 0.00). */
+  box2aBlank?: boolean;
   box2bTaxableNotDetermined: boolean;
   box2bTotalDistribution: boolean;
   box4FedWithheld: Cents;
@@ -122,6 +124,8 @@ export interface Ssa1099 {
   box5NetBenefits: Cents;
   /** Box 6: Voluntary federal income tax withheld. */
   box6FedWithheld: Cents;
+  /** Medicare premiums deducted from the benefits (only suggests the medical question's answer). */
+  medicarePremiums?: Cents;
   evidence: Record<string, Evidence>;
 }
 
@@ -161,6 +165,22 @@ export interface Form1099B {
   payerName: string;
   box4FedWithheld: Cents;
   lots: CapitalLot[];
+  evidence: Record<string, Evidence>;
+}
+
+/** Form 1099-G (Certain Government Payments). */
+export interface Form1099G {
+  id: string;
+  owner: Owner;
+  payerName: string;
+  box1Unemployment: Cents;
+  box2StateRefund: Cents;
+  /** Box 3: the tax year box 2's refund is for. */
+  box3TaxYear: number | null;
+  box4FedWithheld: Cents;
+  /** Boxes 5, 6, 7 and 9 together (not supported yet: they block). */
+  otherBoxes?: Cents;
+  stateLines: { state: string | null; stateTax: Cents }[];
   evidence: Record<string, Evidence>;
 }
 
@@ -274,6 +294,10 @@ export interface ScheduleCBusiness {
   ein?: string | null;
   /** True if the business is a Specified Service Trade or Business (SSTB) under IRC §199A(d)(2) (e.g. consulting, law, health, accounting). */
   isSstb?: boolean;
+  /** Schedule C line G: materially participated in 2025. */
+  materialParticipation?: boolean;
+  /** UBIA of qualified property (Form 8995-A line 7): original cost of business property still in its depreciable period. */
+  ubiaOfQualifiedProperty?: Cents;
   /** True if this business closed in 2024 (no 2025 Schedule C needed). */
   closedInPriorYear?: boolean;
   /** Gross receipts or sales in addition to any uploaded Form 1099-NECs for this owner. */
@@ -438,7 +462,7 @@ export interface ScheduleK1 {
   qbiW2Wages?: Cents;
   /** Section 199A UBIA of qualified property from the pass-through entity. */
   qbiUbia?: Cents;
-  /** Section 199A qualified REIT dividends from the pass-through entity. */
+  /** Section 199A qualified REIT dividends from the pass-through entity (Form 8995 line 6 / 8995-A line 28). */
   qbiReitDividends?: Cents;
   /** True if the K-1 activity is an SSTB for §199A. */
   isSstb?: boolean;
@@ -467,6 +491,14 @@ export interface ScheduleK1 {
   };
   /** Maryland Form 500DM / 510 / 511 K-1 decoupling modification (positive = addition to MD income, negative = subtraction). */
   mdDecouplingModification?: Cents;
+  /** AMT items (1065 box 17 / 1120-S box 15): code A post-1986 depreciation adjustment -> Form 6251 line 2l. Signed. */
+  amtDepreciationAdjustment?: Cents;
+  /** Code B adjusted gain or loss -> Form 6251 line 2k. Signed. */
+  amtGainLossAdjustment?: Cents;
+  /** Codes C–F (depletion, oil and gas, other) -> Form 6251 line 3. Signed. */
+  amtOtherAdjustments?: Cents;
+  /** Form 1041 K-1 box 12 code A (adjustment for minimum tax purposes) -> Form 6251 line 2j. Signed. */
+  amtEstateTrustAdjustment?: Cents;
   evidence?: Record<string, Evidence>;
 }
 
@@ -482,6 +514,8 @@ export interface MdDecouplingFacts {
 
 export interface ItemizedInputs {
   medicalExpenses: Cents;
+  /** Qualified long-term care insurance premiums each person paid (Schedule A counts them up to an age limit). */
+  longTermCarePremiums?: { taxpayer: Cents; spouse: Cents };
   /** State/local income tax PAID during the calendar year beyond W-2 withholding: estimated payments
    *  (including the January payment for last year), last year's balance due paid this year, etc. */
   stateIncomeTaxPayments: { label: string; amount: Cents }[];
@@ -499,6 +533,9 @@ export interface Payments {
   federalEstimated: Cents[];
   /** Optional dated federal estimated payments (`YYYY-MM-DD`) for Form 2210 daily penalty calculation. */
   federalEstimatedDated?: { datePaid: string; amount: Cents }[];
+  /** Estimated payments that count toward each 2025 installment (paid on or before its due date and after the one
+   *  before). Payments after January 15, 2026 are in `federalEstimated` only. Preferred over the dated list. */
+  federalEstimatedByQuarter?: [Cents, Cents, Cents, Cents];
   /** Overpayment from last year's return applied to this year (prior-year Form 1040 line 36). */
   federalPriorYearApplied: Cents;
   /** Amount paid with Form 4868 extension request. */
@@ -511,6 +548,8 @@ export interface Payments {
   computeForm2210?: boolean;
   /** Optional Form 2210 Part II boxes (`A` = full waiver, `B` = partial waiver, `D` = actual withholding dates, `E` = joint/separate filing change). */
   form2210Boxes?: ('A' | 'B' | 'C' | 'D' | 'E')[];
+  /** Form 1040 line 36: overpayment to apply to next year's estimated tax ('all', or an amount; unset = refund it all). */
+  applyToNextYear?: 'all' | Cents;
 }
 
 /** Inputs that only the state return needs. */
@@ -519,6 +558,8 @@ export interface StateReturnFacts {
   homeStateMuniInterest: Cents | null;
   /** 2025 estimated payments to Maryland, including the one paid in January 2026. */
   estimatedPayments: Cents[];
+  /** The same payments by the installment they count toward (Form 502UP); late ones are left out. */
+  estimatedByQuarter?: [Cents, Cents, Cents, Cents];
   /** Overpayment from your 2024 state return applied to 2025. */
   priorYearApplied: Cents;
   /** Paid with a Maryland extension request (Form 502E). */
@@ -527,10 +568,17 @@ export interface StateReturnFacts {
   priorYearMdTax?: Cents | null;
   /** True to compute and attach Maryland Form 502UP (Underpayment of Estimated Income Tax by Individuals -> Form 502 line 51). */
   computeForm502UP?: boolean;
+  /** Form 502 line 49: overpayment to apply to next year's estimated tax ('all', or an amount; unset = refund it all). */
+  applyToNextYear?: 'all' | Cents;
 }
 
 export interface TaxFacts {
   taxYear: 2025 | 2026;
+  /** The user's yes to claiming 1099 foreign tax as a credit without Form 1116 (Schedule 3 line 1). */
+  claimForeignTaxCredit?: boolean;
+  /** Schedule 1-A Parts II–IV, from answers: the household's qualified tips (W-2 box 7) and overtime premium, and
+   *  up to two new-vehicle loans. */
+  newDeductions?: { tips: Cents; overtime: Cents; carLoans: { vin: string; interest: Cents }[] };
   filingStatus: FilingStatus;
   taxpayer: Person;
   spouse: Person | null;
@@ -549,6 +597,18 @@ export interface TaxFacts {
   f1099B?: Form1099B[];
   f1099R?: Form1099R[];
   f1099Nec?: Form1099Nec[];
+  f1099G?: Form1099G[];
+  /** A 2024 state or local income tax refund received (or applied to estimates) in 2025, with what the refund
+   *  worksheet needs from the 2024 return. `priorYear` is null when there's no 2024 return. */
+  stateRefund?: {
+    refund: Cents;
+    priorYear: {
+      filingStatus: FilingStatus;
+      /** 2024 Schedule A; null when the 2024 return took the standard deduction, undefined when Tidy didn't read it. */
+      itemized: { salesTaxElected: boolean; line5d: Cents; line5e: Cents; line17: Cents } | null | undefined;
+      ageOrBlindBoxes: number;
+    } | null;
+  };
   ssa1099?: Ssa1099[];
   scheduleC?: ScheduleCBusiness[];
   rentals?: RentalProperty[];

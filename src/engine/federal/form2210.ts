@@ -106,13 +106,20 @@ export function computeForm2210(
   // Map estimated payments + prior-year overpayment applied to the 4 installment periods
   const estByQuarter: [Cents, Cents, Cents, Cents] = [roundToDollar(f.payments.federalPriorYearApplied), 0, 0, 0];
 
-  if (f.payments.federalEstimatedDated && f.payments.federalEstimatedDated.length > 0) {
+  if (f.payments.federalEstimatedByQuarter) {
+    // Paid by each due date (after the one before). Payments after January 15, 2026 don't count toward any
+    // installment here (they only reduce the balance due), which can only overstate the penalty slightly.
+    f.payments.federalEstimatedByQuarter.forEach((amt, q) => {
+      estByQuarter[q] += roundToDollar(amt);
+    });
+  } else if (f.payments.federalEstimatedDated && f.payments.federalEstimatedDated.length > 0) {
     for (const p of f.payments.federalEstimatedDated) {
       const amt = roundToDollar(p.amount);
       if (p.datePaid <= '2025-04-15') estByQuarter[0] += amt;
-      else if (p.datePaid <= '2025-06-15') estByQuarter[1] += amt;
+      else if (p.datePaid <= '2025-06-16')
+        estByQuarter[1] += amt; // June 15, 2025 was a Sunday
       else if (p.datePaid <= '2025-09-15') estByQuarter[2] += amt;
-      else estByQuarter[3] += amt;
+      else if (p.datePaid <= '2026-01-15') estByQuarter[3] += amt;
     }
   } else {
     f.payments.federalEstimated.slice(0, 4).forEach((amt, idx) => {
